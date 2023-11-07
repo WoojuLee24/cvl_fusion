@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import pixloc.pixlib.datasets.kitti as kitti
+import pixloc.pixlib.geometry.costs as costs
 
 # key_points_2d = torch.from_numpy(camera_k).float() @ key_points.T
 # key_points_2d = key_points_2d[:2, :] / key_points_2d[2, :]
@@ -11,7 +12,57 @@ import pixloc.pixlib.datasets.kitti as kitti
 # grd_image['points2D'] = key_points_2d
 
 grd_process_size = kitti.grd_process_size
+'''
+class DirectAbsoluteCost:
+    def __init__(self, interpolator: Interpolator, normalize: bool = True):
+        self.interpolator = interpolator
+        self.normalize = normalize
+    def residuals(
+            self, T_q2r: Pose, camera: Camera, p3D: Tensor,
+            F_ref: Tensor, F_query: Tensor,
+            confidences: Optional[Tuple[Tensor, Tensor, int]] = None,
+            do_gradients: bool = False):
 
+        p3D_r = T_q2r * p3D # q_3d to q2r_3d
+        p2D, visible = camera.world2image(p3D_r) # q2r_3d to q2r_2d
+        F_p2D_raw, valid, gradients = self.interpolator(
+            F_ref, p2D, return_gradients=do_gradients) # get g2r 2d features
+        valid = valid & visible
+
+        C_ref, C_query, C_count = confidences
+
+        C_ref_p2D, _, _ = self.interpolator(C_ref, p2D, return_gradients=False) # get ref 2d confidence
+
+        # the first confidence
+        weight = C_ref_p2D[:, :, 0] * C_query[:, :, 0]
+        if C_count > 1:
+            grd_weight = C_ref_p2D[:, :, 1].detach() * C_query[:, :, 1]
+            weight = weight * grd_weight
+        # if C2_start == 0:
+        #     # only grd confidence:
+        #     # do not gradiant back to ref confidence
+        #     weight = C_ref_p2D[:, :, 0].detach() * C_query[:, :, 0]
+        # else:
+        #     weight = C_ref_p2D[:,:,0] * C_query[:,:,0]
+        # # the second confidence
+        # if C_query.shape[-1] > 1:
+        #     grd_weight = C_ref_p2D[:, :, 1].detach() * C_query[:, :, 1]
+        #     grd_weight = torch.cat([torch.ones_like(grd_weight[:, :C2_start]), grd_weight[:, C2_start:]], dim=1)
+        #     weight = weight * grd_weight
+
+        if weight != None:
+            weight = weight.masked_fill(~(valid), 0.)
+            #weight = torch.nn.functional.normalize(weight, p=float('inf'), dim=1) #??
+
+        if self.normalize: # huge memory
+            F_p2D = torch.nn.functional.normalize(F_p2D_raw, dim=-1)
+        else:
+            F_p2D = F_p2D_raw
+
+        res = F_p2D - F_query
+        info = (p3D_r, F_p2D, gradients) # ref information
+        return res, valid, weight, F_p2D, info
+'''
 class Attention_Module(nn.Module):
     def __init__(self, num_points):
         super(Attention_Module, self).__init__()
@@ -29,13 +80,14 @@ class Attention_Module(nn.Module):
         attention_weights = self.fc(lidar_points)
         attention_weights = attention_weights * self.attention_weights
         attention_weights = self.sigmoid(attention_weights)
+        attention_weights.squeeze_()
 
         return attention_weights
 
     def img_attention(self, lidar_points, original_img, attention_weights):
-        # original_img: shape:(batch_size, 3, height, width)
-        img_height = original_img.shape[2]
-        img_width = original_img.shape[3]
+        # original_img: shape:(3, height, width)
+        img_height = original_img.shape[1]
+        img_width = original_img.shape[2]
 
         # Bilinear interpolation
         lidar_points_int = lidar_points.floor().long()
