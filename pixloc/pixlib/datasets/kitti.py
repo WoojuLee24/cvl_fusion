@@ -274,10 +274,10 @@ class _Dataset(Dataset):
         elif num_diff > 0 and self.conf.force_num_points3D:
             point_add = torch.ones((num_diff, 3)) * key_points[-1]
             key_points = torch.cat([key_points, point_add], dim=0)
-        key_points_2D = torch.from_numpy(camera_k).float() @ key_points.T
-        key_points_2D = key_points_2D[:2, :] / key_points_2D[2, :]
-        key_points_2D = key_points_2D.T
-        grd_image['points2D'] = key_points_2D
+        key_points_2d = torch.from_numpy(camera_k).float() @ key_points.T
+        key_points_2d = key_points_2d[:2, :] / key_points_2d[2, :]
+        key_points_2d = key_points_2d.T
+        grd_image['points2D'] = key_points_2d
         grd_image['points3D'] = key_points
 
         # ramdom shift translation and rotation on yaw
