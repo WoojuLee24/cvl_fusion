@@ -22,21 +22,20 @@ class Attention_Module(nn.Module):
 
         self.attention_weights = nn.Parameter(torch.ones(num_points, 1))
 
-    def forward(self, lidar_points, original_img):
+    def forward(self, lidar_points):
         # lidar_points: 2D lidar points (u, v) - shape: (num_points, 2)
+
+        # Attention weights
+        attention_weights = self.fc(lidar_points)
+        attention_weights = attention_weights * self.attention_weights
+        attention_weights = self.sigmoid(attention_weights)
+
+        return attention_weights
+
+    def img_attention(self, lidar_points, original_img, attention_weights):
         # original_img: shape:(batch_size, 3, height, width)
         img_height = original_img.shape[2]
         img_width = original_img.shape[3]
-
-        # compute attention weights
-        attention_input = self.fc(lidar_points)
-        attention_weights = self.sigmoid(attention_input)
-        attention_weights = attention_weights * self.attention_weights
-
-        # Normalize attention weights
-        attention_weights = attention_weights / attention_weights.sum(dim=1, keepdim=True)
-
-        # Stack
 
         # Bilinear interpolation
         lidar_points_int = lidar_points.floor().long()
@@ -47,12 +46,24 @@ class Attention_Module(nn.Module):
         bottom_left = (1 - lidar_points_frac[:, 0]) * lidar_points_frac[:, 1]
         bottom_right = lidar_points_frac[:, 0] * lidar_points_frac[:, 1]
 
+        top_left = top_left * attention_weights
+        top_right = top_right * attention_weights
+        bottom_left = bottom_left * attention_weights
+        bottom_right = bottom_right * attention_weights
+
+        attention_mask = torch.zeros((img_height, img_width))
+        for i in range(lidar_points.shape[0]):
+            u, v = lidar_points_int[i]
+            if 0 <= u < img_width - 1 and 0 <= v < img_height - 1:
+                attention_mask[v, u] += top_left[i]
+                attention_mask[v, u + 1] += top_right[i]
+                attention_mask[v + 1, u] += bottom_left[i]
+                attention_mask[v + 1, u + 1] += bottom_right[i]
+
         # attended image
+        attended_img = original_img * attention_mask
 
-
-        return attention_weights, attended_img
-
-
+        return attention_mask, attended_img
 
 '''
 def lidar_mask(data):
@@ -102,15 +113,18 @@ if __name__ == '__main__':
         'seed': 1,
         'num_workers': 0,
     }
+    num_points = conf["max_num_points3D"]
+    attention_module = Attention_Module(num_points)
     dataset = kitti.Kitti(conf)
     loader = dataset.get_data_loader('train', shuffle=True)
 
     for i, data in zip(range(Test_img), loader):
         # attention module
-        data = attention_module(data)
-        attention_mask = data['query']['attention_mask']
-        original_img = data['query']['image'].squeeze()
         lidar_points = data['query']['points2D'].squeeze()
+        original_img = data['query']['image'].squeeze()
+
+        attention_weights = attention_module.forward(lidar_points)
+        attention_mask, attended_img = attention_module.img_attention(lidar_points, original_img, attention_weights)
 
         # visualize
         plt.subplot(1, 3, 1)
