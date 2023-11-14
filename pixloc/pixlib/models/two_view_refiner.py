@@ -53,6 +53,9 @@ class TwoViewRefiner(BaseModel):
 
         # deprecated entries
         'init_target_offset': None,
+
+        # attention
+        'attention': False
     }
     required_data_keys = {
         'ref': ['image', 'camera', 'T_w2cam'],
@@ -97,7 +100,10 @@ class TwoViewRefiner(BaseModel):
         pred['T_q2r_opt'] = []
         pred['pose_loss'] = []
         for i in reversed(range(len(self.extractor.scales))):
-            F_ref = pred['ref']['feature_maps'][i]
+            if self.conf.attention:
+                F_ref = pred['ref']['feature_maps'][i] * pred['ref']['confidences'][i]
+            else:
+                F_ref = pred['ref']['feature_maps'][i]
             cam_ref = pred['ref']['camera_pyr'][i]
 
             if self.conf.duplicate_optimizer_per_scale:
@@ -105,7 +111,10 @@ class TwoViewRefiner(BaseModel):
             else:
                 opt = self.optimizer
 
-            F_q = pred['query']['feature_maps'][i]
+            if self.conf.attention:
+                F_q = pred['query']['feature_maps'][i] * pred['query']['confidences'][i]
+            else:
+                F_q = pred['query']['feature_maps'][i]
             cam_q = pred['query']['camera_pyr'][i]
 
             p2D_query, visible = cam_q.world2image(data['query']['T_w2cam']*p3D_query)
