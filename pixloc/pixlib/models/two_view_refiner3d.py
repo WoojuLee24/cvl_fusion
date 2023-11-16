@@ -45,12 +45,13 @@ class TwoViewRefiner3D(BaseModel):
         'optimizer': {
             'name': 'nn_optimizer3d', # 'learned_optimizer', #'basic_optimizer',
             'input': 'res',
-            'pose_loss': True,
-            'main_loss': 'reproj'
+            'pose_loss': False,
+            'main_loss': 'reproj',
+            'attention': False
         },
-        'duplicate_optimizer_per_scale': True,
+        'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
-        'clamp_error': 50,
+        'clamp_error': 7777,
         'normalize_features': True,
         'normalize_dt': True,
 
@@ -101,7 +102,10 @@ class TwoViewRefiner3D(BaseModel):
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
         for i in reversed(range(len(self.extractor.scales))):
-            F_ref = pred['ref']['feature_maps'][i]
+            if self.conf.optimizer.attention:
+                F_ref = pred['ref']['feature_maps'][i] * pred['ref']['confidences'][i]
+            else:
+                F_ref = pred['ref']['feature_maps'][i]
             cam_ref = pred['ref']['camera_pyr'][i]
 
             if self.conf.duplicate_optimizer_per_scale:
@@ -109,7 +113,10 @@ class TwoViewRefiner3D(BaseModel):
             else:
                 opt = self.optimizer
 
-            F_q = pred['query']['feature_maps'][i]
+            if self.conf.optimizer.attention:
+                F_q = pred['query']['feature_maps'][i] * pred['query']['confidences'][i]
+            else:
+                F_q = pred['query']['feature_maps'][i]
             cam_q = pred['query']['camera_pyr'][i]
 
             p2D_query, visible = cam_q.world2image(data['query']['T_w2cam']*p3D_query)

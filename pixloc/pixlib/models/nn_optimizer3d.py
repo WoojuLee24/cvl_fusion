@@ -42,6 +42,7 @@ class NNOptimizer3D(BaseOptimizer):
         main_loss='reproj',
         range=False,
         linearp=False,
+        attention=False,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -90,12 +91,12 @@ class NNOptimizer3D(BaseOptimizer):
                 valid &= mask
             failed = failed | (valid.long().sum(-1) < 10)  # too few points
 
-            # compute the cost and aggregate the weights
-            cost = (res**2).sum(-1)
-            cost, w_loss, _ = self.loss_fn(cost)
-            weights = w_loss * valid.float()
-            if w_unc is not None:
-                weights = weights*w_unc
+            # # compute the cost and aggregate the weights
+            # cost = (res**2).sum(-1)
+            # cost, w_loss, _ = self.loss_fn(cost)
+            # weights = w_loss * valid.float()
+            # if w_unc is not None:
+            #     weights = weights*w_unc
             # if self.conf.jacobi_scaling:
             #     J, J_scaling = self.J_scaling(J, J_scaling, valid)
 
@@ -154,8 +155,8 @@ class NNOptimizer3D(BaseOptimizer):
 
             # self.log(i=i, T_init=T_init, T=T, T_delta=T_delta, cost=cost,
             #          valid=valid, w_unc=w_unc, w_loss=w_loss, H=H, J=J)
-            self.log(i=i, T_init=T_init, T=T, T_delta=T_delta, cost=cost,
-                     valid=valid, w_unc=w_unc, w_loss=w_loss) # J=J)
+            self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
+
             # if self.early_stop(i=i, T_delta=T_delta, grad=g, cost=cost): # TODO
             #     break
 

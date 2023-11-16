@@ -1,5 +1,6 @@
 ./datasets/
 ./outputs/
+./visualization
 *.mp4
 lsf*
 .DS_Store
