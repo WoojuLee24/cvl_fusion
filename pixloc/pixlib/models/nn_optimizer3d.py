@@ -214,6 +214,16 @@ class NNrefinev0_1(nn.Module):
                                          nn.Linear(64, 1)
                                          )
 
+        elif self.args.pool == 'embed_aap2':
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
         self.mapping = nn.Sequential(nn.ReLU(inplace=False),
                                      nn.Linear(self.cout, 128),
                                      nn.ReLU(inplace=False),
@@ -272,7 +282,7 @@ class NNrefinev0_1(nn.Module):
 
         if self.args.pool == 'max':
             x = torch.max(x, 1, keepdim=True)[0]
-        elif self.args.pool == 'embed':
+        elif 'embed' in self.args.pool:
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
         elif self.args.pool == 'avg':
