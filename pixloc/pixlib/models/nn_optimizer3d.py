@@ -154,12 +154,12 @@ class NNOptimizer3D(BaseOptimizer):
                 t = shift.t[:, :2]
                 rand_t = torch.distributions.uniform.Uniform(-1, 1).sample([B, 2]).to(dt.device)
                 rand_t.requires_grad = True
-                t = torch.where((t > -10) & (t < 10), t, rand_t)
+                t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
                 zero = torch.zeros([B, 1]).to(t.device)
                 # zero = shift.t[:, 2:3]
                 t = torch.cat([t, zero], dim=1)
                 shift._data[..., -3:] = t
-                T = shift @ T_init
+                T = shift @ T_init  # TODO
             else:
                 T = T_delta @ T
 
