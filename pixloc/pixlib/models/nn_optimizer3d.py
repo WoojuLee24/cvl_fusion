@@ -43,6 +43,7 @@ class NNOptimizer3D(BaseOptimizer):
         range=False,
         linearp=False,
         attention=False,
+        mask=False,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -91,6 +92,13 @@ class NNOptimizer3D(BaseOptimizer):
                 valid &= mask
             failed = failed | (valid.long().sum(-1) < 10)  # too few points
 
+            if self.conf.mask:
+                valid = valid.float().unsqueeze(dim=-1).detach()
+                F_query = F_query * valid
+                F_ref2D = F_ref2D * valid
+                p3D = p3D * valid
+                p3D_ref = p3D_ref * valid
+
             # # compute the cost and aggregate the weights
             # cost = (res**2).sum(-1)
             # cost, w_loss, _ = self.loss_fn(cost)
@@ -107,6 +115,8 @@ class NNOptimizer3D(BaseOptimizer):
             #     delta = delta * J_scaling
 
             # # solve the nn optimizer
+
+
             delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale)
 
             if self.conf.pose_from == 'aa':

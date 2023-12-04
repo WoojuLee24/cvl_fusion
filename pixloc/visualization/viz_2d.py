@@ -187,3 +187,38 @@ def imsave(image, folder, name):
         plt.imsave(root + f'/{name}.png', np.asarray(image)[:, :, 0], cmap='gray')
     else:
         plt.imsave(root + f'/{name}.png', np.asarray(image))
+
+
+def get_warp_sat2real(F_ref):
+    # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
+    # realword: X: south, Y:down, Z: east   origin is set to the ground plane
+
+    C, _, satmap_sidelength = F_ref.size()
+
+    # meshgrid the sat pannel
+    i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
+    ii, jj = torch.meshgrid(i, j)  # i:h,j:w
+
+    # uv is coordinate from top/left, v: south, u:east
+    uv = torch.stack([jj, ii], dim=-1).float()  # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+    # sat map from top/left to center coordinate
+    u0 = v0 = satmap_sidelength // 2
+    uv_center = uv - torch.tensor(
+        [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+    # inv equation (1)
+    meter_per_pixel = 0.298548836  # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512)
+    meter_per_pixel *= 1280 / satmap_sidelength
+    # R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
+    # Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
+
+    XY = uv_center * meter_per_pixel
+    Z = torch.zeros_like(XY[..., 0:1])
+    ones = torch.ones_like(Z)
+    # sat2realwap = torch.cat([XY[:, :, :1], Z, XY[:, :, 1:], ones], dim=-1)  # [sidelength,sidelength,4]
+    XYZ = torch.cat([XY[:, :, :1], XY[:, :, 1:], Z], dim=-1)  # [sidelength,sidelength,4]
+    # XYZ = XYZ.unsqueeze(dim=0)
+    # XYZ = XYZ.reshape(B, -1, 3)
+
+    return XYZ

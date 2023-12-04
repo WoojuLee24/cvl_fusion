@@ -18,7 +18,7 @@ from pixloc.pixlib.utils.tools import set_seed
 from pixloc.pixlib.utils.experiments import load_experiment
 from pixloc.visualization.viz_2d import (
     plot_images, plot_keypoints, plot_matches, cm_RdGn,
-    features_to_RGB, add_text, save_plot, plot_valid_points)
+    features_to_RGB, add_text, save_plot, plot_valid_points, get_warp_sat2real)
 
 data_conf = {
     'max_num_points3D': 77777,  # 5000, #both:3976,3D:5000
@@ -165,6 +165,26 @@ def Val(refiner, val_loader, save_path, best_result):
             plt.show()
 
             imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
+
+            # g2s with GH and T
+            imr1 = imr.permute(2, 0, 1)
+            imq1 = imq.permute(2, 0, 1)
+            c, a, a = imr1.size()
+            c, h, w = imq1.size()
+            uv1 = get_warp_sat2real(imr1)
+            uv1 = data['T_q2r_gt'].cuda().inv() * uv1
+            # uv, mask = cam_query.world2image(uv1)
+            uv, mask = data['query']['camera'].cuda().world2image(uv1)
+
+            scale = torch.tensor([w - 1, h - 1]).to(uv)
+            uv = (uv / scale) * 2 - 1
+            uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+            g2s = torch.nn.functional.grid_sample(
+                imq1.cuda().unsqueeze(dim=0), uv.unsqueeze(dim=0), mode='bilinear', align_corners=True)
+
+            plot_images([g2s[0].permute(1, 2, 0).cpu()], dpi=100)
+            if SavePlt:
+                save_plot(save_path + f'/gt_g2s.png')
 
             plot_valid_points(imr, imr, p2D_r_gt[valid], p2D_r_gt[valid])
             if SavePlt:
