@@ -523,7 +523,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
 def main_worker(rank, conf, output_dir, args):
 
     if args.wandb:
-        wandb_config = dict(project="vpr", entity='kaist-url-ai28', name=args.experiment)
+        wandb_config = dict(project="cvl_fusion", entity='kaist-url-ai28', name=args.experiment)
         wandb_logger = WandbLogger(wandb_config, args)
         wandb_logger.before_run()
     else:

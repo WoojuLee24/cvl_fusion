@@ -41,6 +41,8 @@ class Kitti(BaseDataset):
         'two_view': True,
         'max_num_points3D': 5000,
         'force_num_points3D': False,
+        'rot_range': 10,
+        'trans_range': 10,
     }
 
     def _init(self, conf):
