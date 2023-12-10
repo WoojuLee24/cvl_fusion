@@ -122,6 +122,12 @@ def plot_valid_points(imr, imq, p2Dr, p2Dq):
     p2Dr_num, p2Dq_num = p2Dr_int.size(0), p2Dq_int.size(0)
     plot_images([valid_imr], cmaps=matplotlib.cm.gnuplot2, titles=[str(p2Dr_num)])
 
+def plot_valid_points2(imr, imq, p2Dr, p2Dq):
+    valid_imr = torch.zeros_like(imr)
+    p2Dr_int, p2Dq_int = p2Dr.long(), p2Dq.long()
+    valid_imr[p2Dr_int[:, 1], p2Dr_int[:, 0], :] = imq[p2Dq_int[:, 1], p2Dq_int[:, 0], :]
+    return valid_imr
+
 def add_text(idx, text, pos=(0.01, 0.99), fs=15, color='w',
              lcolor='k', lwidth=2):
     ax = plt.gcf().axes[idx]
@@ -173,7 +179,7 @@ def features_to_RGB(*Fs, skip=1):
 
 def imsave(image, folder, name):
     # save image with PIL, plt package
-    root = f"/ws/external/visualizations/{folder}"
+    root = f"/ws/external/visualization/{folder}"
     os.makedirs(root, exist_ok=True)
 
     if isinstance(image, Image.Image):

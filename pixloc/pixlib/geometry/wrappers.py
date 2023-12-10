@@ -12,6 +12,8 @@ import numpy as np
 
 from .optimization import skew_symmetric, so3exp_map
 from .utils import undistort_points, J_undistort_points
+from pytorch3d.structures import Pointclouds, Volumes
+from pytorch3d.ops import add_pointclouds_to_volumes
 
 
 def autocast(func):
@@ -350,6 +352,19 @@ class Camera(TensorWrapper):
         p2d = p3d[..., :-1] / z.unsqueeze(-1)
         return p2d, valid
 
+    @autocast
+    def project3d(self, p3d: torch.Tensor) -> Tuple[torch.Tensor]:
+        '''Project 3D points into the camera plane and check for visibility.'''
+        if np.infty in self._data:
+            z = torch.ones_like(p3d[..., -1])
+        else:
+            z = p3d[..., -1]
+        valid = z > self.eps
+        z = z.clamp(min=self.eps)
+
+        p3d = p3d / z.unsqueeze(-1)
+        return p3d, valid
+
     def J_project(self, p3d: torch.Tensor):
         if np.infty in self._data:
             x, y = p3d[..., 0], p3d[..., 1]
@@ -385,6 +400,15 @@ class Camera(TensorWrapper):
         '''Convert normalized 2D coordinates into pixel coordinates.'''
         return p2d * self.f.unsqueeze(-2) + self.c.unsqueeze(-2)
 
+    @autocast
+    def denormalize3d(self, p3d: torch.Tensor) -> torch.Tensor:
+        '''Convert normalized 2D coordinates into pixel coordinates.'''
+        z = torch.zeros([1, 1]).to(self.f.device)
+        f = torch.cat([self.f, z], dim=-1).unsqueeze(-2)
+        c = torch.cat([self.c, z], dim=-1).unsqueeze(-2)
+
+        return p3d * f #+ c
+
     def J_denormalize(self):
         return torch.diag_embed(self.f).unsqueeze(-3)  # 1 x 2 x 2
 
@@ -396,6 +420,13 @@ class Camera(TensorWrapper):
         p2d = self.denormalize(p2d)
         valid = visible & mask & self.in_image(p2d)
         return p2d, valid
+
+    @autocast
+    def world2image3d(self, p3d: torch.Tensor) -> Tuple[torch.Tensor]:
+        '''Transform 3D points into 2D pixel coordinates.'''
+        p3d = self.denormalize3d(p3d)
+        valid = self.in_image(p3d[... , :-1])
+        return p3d, valid
 
     def J_world2image(self, p3d: torch.Tensor):
         p2d_dist, valid = self.project(p3d)
@@ -414,5 +445,65 @@ class Camera(TensorWrapper):
             p3d = torch.cat([p3d_xy, torch.ones_like(p3d_xy[...,:1])], dim=-1)
         return p3d
 
+    def voxelize(self, xyz, feat, size, level):
+        B, C, D, A, _ = size
+        device = feat.device
+
+        pcs = Pointclouds(points=xyz, features=feat)
+
+        init_vol = Volumes(features=torch.zeros(size).to(device),
+                           densities=torch.zeros((B, 1, D, A, A)).to(device),
+                           # volume_translation=[0, 0, 0],
+                           volume_translation=[self.c[0, 0]-A/2, self.c[0, 1]-A/2, 0],
+                           )
+        updated_vol = add_pointclouds_to_volumes(pointclouds=pcs,
+                                                 initial_volumes=init_vol,
+                                                 mode='trilinear',
+                                                 )
+
+        features = updated_vol.features()
+        features = features.mean(dim=2)
+
+        return features
+
+    def voxelize_(self, xyz, feat, size, level):
+        # for debugging
+        B, C, D, A, _ = size
+        device = feat.device
+
+        pcs = Pointclouds(points=xyz, features=feat)
+
+        init_vol = Volumes(features=torch.zeros(size).to(device),
+                           densities=torch.zeros((B, 1, D, A, A)).to(device),
+                           # volume_translation=[0, 0, 0],
+                           volume_translation=[self.c[0] - A / 2, self.c[1] - A / 2, 0],
+                           )
+        updated_vol = add_pointclouds_to_volumes(pointclouds=pcs,
+                                                 initial_volumes=init_vol,
+                                                 mode='trilinear',
+                                                 )
+
+        features = updated_vol.features()
+        features = features.mean(dim=2)
+
+        return features
+
     def __repr__(self):
         return f'Camera {self.shape} {self.dtype} {self.device}'
+
+
+    @autocast
+    def world2image3d_(self, p3d: torch.Tensor) -> Tuple[torch.Tensor]:
+        '''Transform 3D points into 2D pixel coordinates.'''
+        p3d = self.denormalize3d_(p3d)
+        valid = self.in_image(p3d[... , :-1])
+        return p3d, valid
+
+    @autocast
+    def denormalize3d_(self, p3d: torch.Tensor) -> torch.Tensor:
+        '''Convert normalized 2D coordinates into pixel coordinates.'''
+        z = torch.zeros([1]).to(self.f.device)
+        f = torch.cat([self.f, z], dim=-1).unsqueeze(-2)
+        c = torch.cat([self.c, z], dim=-1).unsqueeze(-2)
+
+        return p3d * f #+ c
