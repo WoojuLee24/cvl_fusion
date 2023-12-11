@@ -403,9 +403,9 @@ class Camera(TensorWrapper):
     @autocast
     def denormalize3d(self, p3d: torch.Tensor) -> torch.Tensor:
         '''Convert normalized 2D coordinates into pixel coordinates.'''
-        z = torch.zeros([1, 1]).to(self.f.device)
-        f = torch.cat([self.f, z], dim=-1).unsqueeze(-2)
-        c = torch.cat([self.c, z], dim=-1).unsqueeze(-2)
+        z_f = torch.ones([self.f.size(0), 1]).to(self.f.device)
+        f = torch.cat([self.f, z_f], dim=-1).unsqueeze(-2)
+        # c = torch.cat([self.c, z_c], dim=-1).unsqueeze(-2)
 
         return p3d * f #+ c
 
@@ -502,7 +502,7 @@ class Camera(TensorWrapper):
     @autocast
     def denormalize3d_(self, p3d: torch.Tensor) -> torch.Tensor:
         '''Convert normalized 2D coordinates into pixel coordinates.'''
-        z = torch.zeros([1]).to(self.f.device)
+        z = torch.ones([1]).to(self.f.device)
         f = torch.cat([self.f, z], dim=-1).unsqueeze(-2)
         c = torch.cat([self.c, z], dim=-1).unsqueeze(-2)
 

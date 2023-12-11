@@ -111,7 +111,7 @@ class NNOptimizer2D(BaseOptimizer):
                 p3D_ref = p3D_ref * valid
 
             # F_q2r_control = self.voxelize(p3D_ref, F_query, size=(b, c, 5, a, a), level=scale)
-            F_q2r = camera.voxelize(p3D_ref, F_query, size=(b, c, 5, a, a), level=scale)
+            F_q2r = camera.voxelize(p3D_ref, F_query, size=(b, c, 3, a, a), level=scale)
 
             # ## debug
             # from pixloc.visualization.viz_2d import imsave
