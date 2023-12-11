@@ -220,7 +220,7 @@ class NNrefinev0_1(nn.Module):
         self.args = args
 
         self.cin = [128, 128, 32]
-        self.cout = 64
+        self.cout = 32
 
         # channel projection
         if self.args.input in ['concat']:
