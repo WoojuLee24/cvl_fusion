@@ -276,11 +276,11 @@ def Val(refiner, val_loader, save_path, best_result):
                     start_0 = p2s
                     end_0 = p2e
                     axes[0].quiver(start_0[:, 0], start_0[:, 1], end_0[:, 0] - start_0[:, 0], start_0[:, 1] - end_0[:, 1], color='r')
-                elif i == len(logger.camera_trajectory)-1:
-                    axes[0].quiver(p2s[:, 0], p2s[:, 1], p2e[:, 0] - p2s[:, 0], p2s[:, 1] - p2e[:, 1], color='b')
-                    axes[0].quiver(start_0[:, 0], start_0[:, 1], end_0[:, 0] - start_0[:, 0], start_0[:, 1] - end_0[:, 1], color='r')
-                else:
-                    axes[0].quiver(p2s[:,0], p2s[:,1], p2e[:,0]-p2s[:,0], p2s[:,1]-p2e[:,1], color=c[None])
+                # elif i == len(logger.camera_trajectory)-1:
+                #     axes[0].quiver(p2s[:, 0], p2s[:, 1], p2e[:, 0] - p2s[:, 0], p2s[:, 1] - p2e[:, 1], color='b')
+                #     axes[0].quiver(start_0[:, 0], start_0[:, 1], end_0[:, 0] - start_0[:, 0], start_0[:, 1] - end_0[:, 1], color='r')
+                # else:
+                #     axes[0].quiver(p2s[:,0], p2s[:,1], p2e[:,0]-p2s[:,0], p2s[:,1]-p2e[:,1], color=c[None])
             axes[0].quiver(logger.camera_gt[:, 0], logger.camera_gt[:, 1], logger.camera_gt_yaw[:, 0]-logger.camera_gt[:, 0],
                            logger.camera_gt[:, 1]-logger.camera_gt_yaw[:, 1], color='lime')
             logger.clear_trajectory()
@@ -337,7 +337,7 @@ if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    save_path = '/ws/external/visualization'
+    save_path = '/ws/external/visualization/latlon'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 

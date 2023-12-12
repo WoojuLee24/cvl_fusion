@@ -284,6 +284,8 @@ class _Dataset(Dataset):
         R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
         TShiftRange = self.conf.trans_range # 5  # SIBCL: 5 meter, cvl: 10 meter
         T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
+        # T[0] = 0 # debug: no shift on lon
+        # T[1] = 0  # debug: no shift on lat
         T[2] = 0  # no shift on height
 
         shift = Pose.from_Rt(R_yaw, T)
