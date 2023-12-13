@@ -43,6 +43,7 @@ class Kitti(BaseDataset):
         'force_num_points3D': False,
         'rot_range': 10,
         'trans_range': 10,
+        'satmap_zoom': 18
     }
 
     def _init(self, conf):
@@ -130,7 +131,9 @@ class _Dataset(Dataset):
     def __init__(self, conf, split):
         self.root = root_dir
         self.conf = conf
-        self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair_'+str(satmap_zoom)+'.npy'), allow_pickle=True)
+        self.satmap_zoom = self.conf.satmap_zoom
+        self.satmap_dir = 'satmap_'+str(self.satmap_zoom)
+        self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair_'+str(self.satmap_zoom)+'.npy'), allow_pickle=True)
 
         # read form txt files
         self.file_name = []
@@ -233,7 +236,7 @@ class _Dataset(Dataset):
         SatMap_name = self.sat_pair.item().get(file_name)
         sat_gps = SatMap_name.split('_')
         sat_gps = [float(sat_gps[3]), float(sat_gps[5])]
-        SatMap_name = os.path.join(root_dir, satmap_dir, SatMap_name)
+        SatMap_name = os.path.join(root_dir, self.satmap_dir, SatMap_name)
         with Image.open(SatMap_name, 'r') as SatMap:
             sat_map = SatMap.convert('RGB')
             sat_map = ToTensor(sat_map)
@@ -241,7 +244,7 @@ class _Dataset(Dataset):
         # get ground-view, satellite image shift
         x_sg, y_sg = gps_func.angular_distance_to_xy_distance_v2(sat_gps[0], sat_gps[1], location[0],
                                                                  location[1])
-        meter_per_pixel = Kitti_utils.get_meter_per_pixel(satmap_zoom, scale=1)
+        meter_per_pixel = Kitti_utils.get_meter_per_pixel(self.satmap_zoom, scale=1)
         x_sg = int(x_sg / meter_per_pixel)
         y_sg = int(-y_sg / meter_per_pixel)
 

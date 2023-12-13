@@ -36,7 +36,7 @@ default_train_conf = {
     'optimizer': 'adam',  # name of optimizer in [adam, sgd, rmsprop]
     'opt_regexp': None,  # regular expression to filter parameters to optimize
     'optimizer_options': {},  # optional arguments passed to the optimizer
-    'lr': 0.001,  # learning rate
+    'lr': 0.0001,  # learning rate
     'lr_schedule': {'type': None, 'start': 0, 'exp_div_10': 0}, #
     'lr_scaling': [(100, ['dampingnet.const'])],
     'eval_every_iter': 1000,  # interval for evaluation on the validation set
@@ -146,9 +146,27 @@ def test(model, test_loader, wandb_logger=None):
     logger.info(f'median errR:{torch.median(errR)}, errlat:{torch.median(errlat)}, errlong:{torch.median(errlong)}')
 
     if wandb_logger != None:
+        wandb_logger.wandb.log({'test/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
+        wandb_logger.wandb.log({'test/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
         wandb_logger.wandb.log({'test/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
+        wandb_logger.wandb.log({'test/mean errlat': torch.mean(errlat)})
+        wandb_logger.wandb.log({'test/var errlat': torch.var(errlat)})
+        wandb_logger.wandb.log({'test/median errlat': torch.median(errlat)})
+
+        wandb_logger.wandb.log({'test/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
+        wandb_logger.wandb.log({'test/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
         wandb_logger.wandb.log({'test/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
+        wandb_logger.wandb.log({'test/mean errlon': torch.mean(errlong)})
+        wandb_logger.wandb.log({'test/var errlon': torch.var(errlong)})
+        wandb_logger.wandb.log({'test/median errlon': torch.median(errlong)})
+
         wandb_logger.wandb.log({'test/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+        wandb_logger.wandb.log({'test/rot 2': torch.sum(errR <= 2) / errR.size(0)})
+        wandb_logger.wandb.log({'test/rot 4': torch.sum(errR <= 4) / errR.size(0)})
+        wandb_logger.wandb.log({'test/mean errR': torch.mean(errR)})
+        wandb_logger.wandb.log({'test/var errR': torch.var(errR)})
+        wandb_logger.wandb.log({'test/median errR': torch.median(errR)})
+
 
     return
 
@@ -380,7 +398,9 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
     losses_ = None
 
     # debug
-    # test(model, test_loader, wandb_logger=wandb_logger)
+    if args.test:
+        test(model, test_loader, wandb_logger=wandb_logger)
+        return 0
     # torch.cuda.empty_cache()  # should be cleared at the first iter
 
     while epoch < conf.train.epochs and not stop:
@@ -543,6 +563,7 @@ if __name__ == '__main__':
     parser.add_argument('--overfit', action='store_true', default=False)
     parser.add_argument('--restore', action='store_true', default=False)
     parser.add_argument('--distributed', action='store_true',default=False)
+    parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--dotlist', nargs='*', default=["data.name=kitti","data.max_num_points3D=4096","data.force_num_points3D=True",
                                                          "data.num_workers=4","data.train_batch_size=1","data.test_batch_size=1",
                                                          "data.rot_range=10", "data.trans_range=10",

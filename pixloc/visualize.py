@@ -26,6 +26,7 @@ data_conf = {
     'train_batch_size': 1,
     'test_batch_size': 4,
     'num_workers': 0,
+    'satmap_zoom': 19
 }
 
 
@@ -152,6 +153,7 @@ def Val(refiner, val_loader, save_path, best_result):
             plot_keypoints([p2D_r_gt[valid]], colors='lime')
             plot_keypoints([p2D_r_init[valid]], colors='red')
             plot_keypoints([p2D_r_opt[valid]], colors='blue')
+
             if SavePlt:
                 save_plot(save_path + f'/sat_points.png')
             plt.show()
@@ -337,7 +339,7 @@ if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    save_path = '/ws/external/visualization/latlon'
+    save_path = '/ws/external/visualization/zoom19'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
