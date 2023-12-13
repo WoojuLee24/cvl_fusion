@@ -138,7 +138,7 @@ def Val(refiner, val_loader, save_path, best_result):
         F_q, _ = interpolate_tensor_bilinear(data['query']['image'], p2D_q)
 
         p3D_ref, visible = cam_r.world2image3d_(data['T_q2r_gt'] * p3D_q)
-        F_q2r = cam_r.voxelize_(p3D_ref.unsqueeze(0), F_q.unsqueeze(0), size=(1, 3, 5, 1280, 1280), level=0)
+        F_q2r = cam_r.voxelize_(p3D_ref.unsqueeze(0), F_q.unsqueeze(0), size=(1, 3, 20, 1280, 1280), level=0)
         from pixloc.visualization.viz_2d import imsave
         imsave(F_q2r[0], save_path, 'validgt_g2s_points2d')
         # import matplotlib

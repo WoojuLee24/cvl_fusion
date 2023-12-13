@@ -47,7 +47,7 @@ class NNOptimizer2D(BaseOptimizer):
         linearp=False,
         attention=False,
         mask=False,
-        input_dim=[32, 128, 128],
+        input_dim=[128, 128, 32],   # [32, 128, 128],
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -97,7 +97,7 @@ class NNOptimizer2D(BaseOptimizer):
             p3D_ref, visible = camera.world2image3d(p3D_ref)
 
             # F_p2D_raw, valid, gradients = self.interpolator(F_ref, p2D, return_gradients=False)  # get g2r 2d features
-            valid = mask_in_image(p3D_ref[..., :-1], (a, a), pad=4)
+            valid = mask_in_image(p3D_ref[..., :-1], (a, a), pad=0)
             valid = valid & visible
 
             if mask is not None:
@@ -112,17 +112,15 @@ class NNOptimizer2D(BaseOptimizer):
                 p3D_ref = p3D_ref * valid
 
             # F_q2r_control = self.voxelize(p3D_ref, F_query, size=(b, c, 5, a, a), level=scale)
-            F_q2r = camera.voxelize(p3D_ref, F_query, size=(b, c, 3, a, a), level=scale)
+            F_q2r = camera.voxelize(p3D_ref, F_query, size=(b, c, 20, a, a), level=scale)
 
             # ## debug
             # from pixloc.visualization.viz_2d import imsave
             #
-            # F_q2r_control_cpu = F_q2r_control[0].mean(dim=0, keepdim=True)
             # F_q2r_cpu = F_q2r[0].mean(dim=0, keepdim=True)
             # F_ref_cpu = F_ref[0].mean(dim=0, keepdim=True)
-            # imsave(F_ref_cpu, '2d', 'F_ref')
-            # imsave(F_q2r_control_cpu, '2d', 'F_q2r_control')
-            # imsave(F_q2r_cpu, '2d', 'F_q2r')
+            # imsave(F_ref_cpu, '2d_1212', f'{scale}F_ref')
+            # imsave(F_q2r_cpu, '2d_1212', f'{scale}F_q2r')
 
 
             delta = self.nnrefine(F_q2r, F_ref, scale)

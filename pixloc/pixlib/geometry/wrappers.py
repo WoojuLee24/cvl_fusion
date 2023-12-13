@@ -449,12 +449,17 @@ class Camera(TensorWrapper):
         B, C, D, A, _ = size
         device = feat.device
 
+        pad = torch.zeros([B, 1]).to(device)
+        c = torch.cat([self.c, pad], dim=-1)
+        center = torch.tensor([[A / 2, A / 2, 0]], dtype=torch.float32).to(device)
+        translation = (c - center).detach()
+
         pcs = Pointclouds(points=xyz, features=feat)
 
         init_vol = Volumes(features=torch.zeros(size).to(device),
                            densities=torch.zeros((B, 1, D, A, A)).to(device),
                            # volume_translation=[0, 0, 0],
-                           volume_translation=[self.c[0, 0]-A/2, self.c[0, 1]-A/2, 0],
+                           volume_translation=translation,  #[self.c[0, 0]-A/2, self.c[0, 1]-A/2, 0],
                            )
         updated_vol = add_pointclouds_to_volumes(pointclouds=pcs,
                                                  initial_volumes=init_vol,
