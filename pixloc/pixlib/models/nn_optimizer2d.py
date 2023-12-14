@@ -94,11 +94,11 @@ class NNOptimizer2D(BaseOptimizer):
 
             p3D_ref = T * p3D  # q_3d to q2r_3d
             # p2D, visible = camera.world2image(p3D_ref)
-            p3D_ref, visible = camera.world2image3d(p3D_ref)
+            p3D_ref, valid = camera.world2image3d(p3D_ref)
 
             # F_p2D_raw, valid, gradients = self.interpolator(F_ref, p2D, return_gradients=False)  # get g2r 2d features
-            valid = mask_in_image(p3D_ref[..., :-1], (a, a), pad=0)
-            valid = valid & visible
+            # valid = mask_in_image(p3D_ref[..., :-1], (a, a), pad=0)
+            # valid = valid & visible
 
             if mask is not None:
                 valid &= mask
@@ -121,7 +121,6 @@ class NNOptimizer2D(BaseOptimizer):
             # F_ref_cpu = F_ref[0].mean(dim=0, keepdim=True)
             # imsave(F_ref_cpu, '2d_1212', f'{scale}F_ref')
             # imsave(F_q2r_cpu, '2d_1212', f'{scale}F_q2r')
-
 
             delta = self.nnrefine(F_q2r, F_ref, scale)
 

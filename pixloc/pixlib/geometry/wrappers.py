@@ -404,10 +404,11 @@ class Camera(TensorWrapper):
     def denormalize3d(self, p3d: torch.Tensor) -> torch.Tensor:
         '''Convert normalized 2D coordinates into pixel coordinates.'''
         z_f = torch.ones([self.f.size(0), 1]).to(self.f.device)
+        z_c = torch.zeros([self.c.size(0), 1]).to(self.f.device)
         f = torch.cat([self.f, z_f], dim=-1).unsqueeze(-2)
-        # c = torch.cat([self.c, z_c], dim=-1).unsqueeze(-2)
+        c = torch.cat([self.c, z_c], dim=-1).unsqueeze(-2)
 
-        return p3d * f #+ c
+        return p3d * f, p3d * f + c
 
     def J_denormalize(self):
         return torch.diag_embed(self.f).unsqueeze(-3)  # 1 x 2 x 2
@@ -424,9 +425,9 @@ class Camera(TensorWrapper):
     @autocast
     def world2image3d(self, p3d: torch.Tensor) -> Tuple[torch.Tensor]:
         '''Transform 3D points into 2D pixel coordinates.'''
-        p3d = self.denormalize3d(p3d)
-        valid = self.in_image(p3d[... , :-1])
-        return p3d, valid
+        p3df, p3dfc = self.denormalize3d(p3d)
+        valid = self.in_image(p3dfc.detach()[... , :-1])
+        return p3df, valid
 
     def J_world2image(self, p3d: torch.Tensor):
         p2d_dist, valid = self.project(p3d)
@@ -467,7 +468,9 @@ class Camera(TensorWrapper):
                                                  )
 
         features = updated_vol.features()
-        features = features.mean(dim=2)
+        # features = features.mean(dim=2)
+        mask = (features != 0).sum(dim=2, keepdim=True).detach()
+        features = (features * mask).sum(dim=2) / (mask.sum(dim=2)+1e-6)
 
         return features
 
