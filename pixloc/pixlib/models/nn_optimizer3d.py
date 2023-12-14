@@ -44,6 +44,7 @@ class NNOptimizer3D(BaseOptimizer):
         linearp=False,
         attention=False,
         mask=False,
+        input_dim=[128, 128, 32],  # [32, 128, 128],
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -181,7 +182,7 @@ class NNrefinev0_1(nn.Module):
         super(NNrefinev0_1, self).__init__()
         self.args = args
 
-        self.cin = [128, 128, 32]
+        self.cin = self.args.input_dim  # [64, 32, 16] # [128, 128, 32]
         self.cout = 128
         pointc = 128
 
