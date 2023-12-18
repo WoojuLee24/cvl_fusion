@@ -12,7 +12,7 @@ visual_path = 'visual_kitti'
 
 Ford_dataset = False
 exp = 'kitti'
-
+import collections
 from pixloc.pixlib.utils.tensor import batch_to_device, map_tensor
 from pixloc.pixlib.utils.tools import set_seed
 from pixloc.pixlib.utils.experiments import load_experiment
@@ -21,12 +21,12 @@ from pixloc.visualization.viz_2d import (
     features_to_RGB, add_text, save_plot, plot_valid_points, get_warp_sat2real)
 
 data_conf = {
-    'max_num_points3D': 77777,  # 5000, #both:3976,3D:5000
-    'force_num_points3D': False,
+    'max_num_points3D': 1024,  # 5000, #both:3976,3D:5000
+    'force_num_points3D': True,
     'train_batch_size': 1,
-    'test_batch_size': 4,
+    'test_batch_size': 2,
     'num_workers': 0,
-    'satmap_zoom': 19
+    'satmap_zoom': 18
 }
 
 
@@ -50,7 +50,9 @@ conf = {
     'optimizer': {'num_iters': 5,},
 }
 # refiner = load_experiment(exp, conf, get_last=True).to(device)
-refiner = load_experiment(exp, conf, ckpt='/ws/external/outputs/training/LM_LiDAR1011_e10_i1_b2/checkpoint_best.tar').to(device)
+refiner = load_experiment(exp, conf,
+                          ckpt='/ws/external/outputs/training/nn_lidar1212_refiner3d_res_i1_sibcl.set/checkpoint_best.tar'  #'/ws/external/outputs/training/LM_LiDAR1011_e10_i1_b2/checkpoint_best.tar' #
+                          ).to(device)
 print(OmegaConf.to_yaml(refiner.conf))
 
 class Logger:
@@ -63,8 +65,11 @@ class Logger:
         self.pre_q2r = None
 
         if optimizers is not None:
-            for opt in optimizers:
-                opt.logging_fn = self.log
+            if isinstance(optimizers, collections.Iterable):
+                for opt in optimizers:
+                    opt.logging_fn = self.log
+            else:
+                optimizers.logging_fn = self.log
 
     def log(self, **args):
         if args['i'] == 0:
@@ -80,7 +85,7 @@ class Logger:
             self.camera_gt_yaw = camera_2D[0].cpu().numpy()
             camera_yaw, valid = self.data['ref']['camera'].world2image(self.data['T_q2r_init'] * camera_3D)
             self.yaw_trajectory.append((camera_yaw[0].cpu().numpy(), valid[0].cpu().numpy()))
-        self.costs[-1].append(args['cost'].mean(-1).cpu().numpy())
+        # self.costs[-1].append(args['cost'].mean(-1).cpu().numpy())
         self.dt.append(args['T_delta'].magnitude()[1].cpu().numpy())
         self.t.append(args['T'].cpu())
 
@@ -150,12 +155,22 @@ def Val(refiner, val_loader, save_path, best_result):
             imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
             plot_images([imr],dpi=50,  # set to 100-200 for higher res
                              titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
-            plot_keypoints([p2D_r_gt[valid]], colors='lime')
-            plot_keypoints([p2D_r_init[valid]], colors='red')
-            plot_keypoints([p2D_r_opt[valid]], colors='blue')
-
+            plot_keypoints([p2D_r_gt[valid]], colors='lime', alpha=1, ps=1)
             if SavePlt:
-                save_plot(save_path + f'/sat_points.png')
+                save_plot(save_path + f'/sat_points_2gt.png')
+            plot_images([imr], dpi=50,  # set to 100-200 for higher res
+                        titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
+            plot_keypoints([p2D_r_init[valid]], colors='red', alpha=1, ps=1)
+            if SavePlt:
+                save_plot(save_path + f'/sat_points_0init.png')
+            plot_images([imr], dpi=50,  # set to 100-200 for higher res
+                        titles=[(errR, errt), errP + errt])
+            plot_keypoints([p2D_r_opt[valid]], colors='blue', alpha=1, ps=1)
+            if SavePlt:
+                save_plot(save_path + f'/sat_points_1opt.png')
+
+            # if SavePlt:
+            #     save_plot(save_path + f'/sat_points.png')
             plt.show()
             plot_images([imq],
                         dpi=100)
@@ -261,13 +276,13 @@ def Val(refiner, val_loader, save_path, best_result):
                 #     save_plot(save_path + f'/f_g_{i}.png')
                 # plt.show()
 
-            costs = logger.costs
-            fig, axes = plt.subplots(1, len(costs), figsize=(len(costs)*4.5, 4.5))
-            for i, (ax, cost) in enumerate(zip(axes, costs)):
-                ax.plot(cost) if len(cost)>1 else ax.scatter(0., cost)
-                ax.set_title(f'({i}) Scale {i//3} Level {i%3}')
-                ax.grid()
-            plt.show()
+            # costs = logger.costs
+            # fig, axes = plt.subplots(1, len(costs), figsize=(len(costs)*4.5, 4.5))
+            # for i, (ax, cost) in enumerate(zip(axes, costs)):
+            #     ax.plot(cost) if len(cost)>1 else ax.scatter(0., cost)
+            #     ax.set_title(f'({i}) Scale {i//3} Level {i%3}')
+            #     ax.grid()
+            # plt.show()
 
             colors = mpl.cm.cool(1 - np.linspace(0, 1, len(logger.camera_trajectory)))[:, :3]
             plot_images([imr])
@@ -339,7 +354,7 @@ if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    save_path = '/ws/external/visualization/zoom19'
+    save_path = '/ws/external/visualization/3d_1216_sibcl.set'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 

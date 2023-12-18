@@ -47,6 +47,9 @@ class TwoViewRefiner3D(BaseModel):
             'input': 'res',
             'pose_loss': False,
             'main_loss': 'reproj',
+            'coe_lat': 1.,
+            'coe_lon': 1.,
+            'coe_rot': 1.,
             'attention': False
         },
         'duplicate_optimizer_per_scale': False,
@@ -186,9 +189,12 @@ class TwoViewRefiner3D(BaseModel):
         points_3d = data['query']['points3D']
         shift_gt = data['shift_gt']
         shift_init = torch.zeros_like(shift_gt)
+        coe = torch.tensor([[self.conf.optimizer.coe_lat,
+                            self.conf.optimizer.coe_lon,
+                            self.conf.optimizer.coe_rot]]).to(shift_init.device)
 
         def shift_error(shift):
-            err = torch.sum((shift - shift_gt) ** 2, dim=-1)
+            err = torch.sum(coe * (shift - shift_gt) ** 2, dim=-1)
             # err = scaled_barron(1., 2.)(err)[0] / 4
             err = err.mean(dim=0, keepdim=True)
             return err

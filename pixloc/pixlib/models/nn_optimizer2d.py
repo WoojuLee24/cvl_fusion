@@ -47,6 +47,7 @@ class NNOptimizer2D(BaseOptimizer):
         linearp=False,
         attention=False,
         mask=False,
+        sat_mask=False,
         input_dim=[128, 128, 32],   # [32, 128, 128],
         # deprecated entries
         lambda_=0.,
@@ -121,7 +122,9 @@ class NNOptimizer2D(BaseOptimizer):
             # F_ref_cpu = F_ref[0].mean(dim=0, keepdim=True)
             # imsave(F_ref_cpu, '2d_1212', f'{scale}F_ref')
             # imsave(F_q2r_cpu, '2d_1212', f'{scale}F_q2r')
-
+            if self.conf.sat_mask:
+                sat_mask = (F_q2r.mean(dim=1, keepdim=True)!=0).float().detach()
+                F_ref = F_ref * sat_mask
             delta = self.nnrefine(F_q2r, F_ref, scale)
 
             if self.conf.pose_from == 'aa':
@@ -181,36 +184,36 @@ class NNOptimizer2D(BaseOptimizer):
         return T, failed, shiftxyr
 
 
-    def voxelize(self, xyz, feat, size, level):
-        B, C, D, A, _ = size
-        device = feat.device
-
-        # R = torch.tensor([0, 0, 1, 1, 0, 0, 0, 1, 0], dtype=torch.float32, device=feat.device).reshape(3, 3)
-        #
-        # if xyz.dim() == 4:
-        #     zxy = torch.sum(R[None, None, None, :, :] * xyz[:, :, :, None, :], dim=-1)
-        # elif xyz.dim() == 3:
-        #     zxy = torch.sum(R[None, None, :, :] * xyz[:, :, None, :], dim=-1)
-        #
-        # meter_per_pixel = utils.get_meter_per_pixel() * utils.get_process_satmap_sidelength() / A
-        # meter_per_vol = torch.tensor([meter_per_pixel, meter_per_pixel, 1], dtype=torch.float32, device=feat.device)
-        # zxy = zxy / meter_per_vol # + shift
-
-        pcs = Pointclouds(points=xyz, features=feat)
-
-        init_vol = Volumes(features=torch.zeros(size).to(device),
-                           densities=torch.zeros((B, 1, D, A, A)).to(device),
-                           volume_translation=[0, 0, 0],
-                           )
-        updated_vol = add_pointclouds_to_volumes(pointclouds=pcs,
-                                                 initial_volumes=init_vol,
-                                                 mode='trilinear',
-                                                 )
-
-        features = updated_vol.features()
-        features = features.mean(dim=2)
-
-        return features
+    # def voxelize(self, xyz, feat, size, level):
+    #     B, C, D, A, _ = size
+    #     device = feat.device
+    #
+    #     # R = torch.tensor([0, 0, 1, 1, 0, 0, 0, 1, 0], dtype=torch.float32, device=feat.device).reshape(3, 3)
+    #     #
+    #     # if xyz.dim() == 4:
+    #     #     zxy = torch.sum(R[None, None, None, :, :] * xyz[:, :, :, None, :], dim=-1)
+    #     # elif xyz.dim() == 3:
+    #     #     zxy = torch.sum(R[None, None, :, :] * xyz[:, :, None, :], dim=-1)
+    #     #
+    #     # meter_per_pixel = utils.get_meter_per_pixel() * utils.get_process_satmap_sidelength() / A
+    #     # meter_per_vol = torch.tensor([meter_per_pixel, meter_per_pixel, 1], dtype=torch.float32, device=feat.device)
+    #     # zxy = zxy / meter_per_vol # + shift
+    #
+    #     pcs = Pointclouds(points=xyz, features=feat)
+    #
+    #     init_vol = Volumes(features=torch.zeros(size).to(device),
+    #                        densities=torch.zeros((B, 1, D, A, A)).to(device),
+    #                        volume_translation=[0, 0, 0],
+    #                        )
+    #     updated_vol = add_pointclouds_to_volumes(pointclouds=pcs,
+    #                                              initial_volumes=init_vol,
+    #                                              mode='trilinear',
+    #                                              )
+    #
+    #     features = updated_vol.features()
+    #     features = features.mean(dim=2)
+    #
+    #     return features
 
 class NNrefinev0_1(nn.Module):
     def __init__(self, args):

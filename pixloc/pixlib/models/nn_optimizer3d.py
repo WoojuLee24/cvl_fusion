@@ -40,6 +40,9 @@ class NNOptimizer3D(BaseOptimizer):
         pose_from='aa',
         pose_loss=False,
         main_loss='reproj',
+        coe_lat=1.,
+        coe_lon=1.,
+        coe_rot=1.,
         range=True, # 'none',   # 'r', 't', 'rt'
         linearp=False,
         attention=False,

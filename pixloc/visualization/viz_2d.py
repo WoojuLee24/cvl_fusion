@@ -58,7 +58,7 @@ def plot_images(imgs, titles=None, cmaps='gray', dpi=100, pad=.5,
     fig.tight_layout(pad=pad)
 
 
-def plot_keypoints(kpts, colors='lime', ps=6):
+def plot_keypoints(kpts, colors='lime', ps=3, alpha=1):
     """Plot keypoints for existing images.
     Args:
         kpts: list of ndarrays of size (N, 2).
@@ -70,7 +70,7 @@ def plot_keypoints(kpts, colors='lime', ps=6):
     axes = plt.gcf().axes
     for a, k, c in zip(axes, kpts, colors):
         if k is not None:
-            a.scatter(k[:, 0], k[:, 1], c=c, s=ps, linewidths=0)
+            a.scatter(k[:, 0], k[:, 1], c=c, s=ps, linewidths=0, alpha=alpha)
 
 
 def plot_matches(kpts0, kpts1, color=None, lw=1.5, ps=4, indices=(0, 1), a=1.):

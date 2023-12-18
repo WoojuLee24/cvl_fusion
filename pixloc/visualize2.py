@@ -205,6 +205,9 @@ def Val(refiner, val_loader, save_path, best_result):
             validgt_lidar_points = plot_valid_points2(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_r_gt[valid])
             imsave(validgt_lidar_points.permute((2, 0, 1)), save_path, 'validgt_lidar_points')
 
+            validinit_g2s_points = plot_valid_points2(imr, imq, p2D_r_init[valid], p2D_q[valid])
+            imsave(validinit_g2s_points.permute((2, 0, 1)), save_path, 'validinit_g2s_points')
+
             imsave(imr.permute((2, 0, 1)), save_path, 'sat')
             imsave(imq.permute((2, 0, 1)), save_path, 'grd')
 
