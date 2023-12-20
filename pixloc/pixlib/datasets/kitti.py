@@ -19,6 +19,7 @@ import kitti_data_process.Kitti_gps_coord_func as gps_func
 import random
 import cv2
 from pixloc.pixlib.geometry import Camera, Pose
+from pytorch3d.ops import sample_farthest_points
 
 root_dir = "/ws/data/kitti-vo" # your kitti dir
 satmap_zoom = 18 
@@ -41,9 +42,10 @@ class Kitti(BaseDataset):
         'two_view': True,
         'max_num_points3D': 5000,
         'force_num_points3D': False,
-        'rot_range': 10,
-        'trans_range': 10,
-        'satmap_zoom': 18
+        'rot_range': 15,
+        'trans_range': 5,
+        'satmap_zoom': 18,
+        'sampling': 'random',
     }
 
     def _init(self, conf):
@@ -250,8 +252,8 @@ class _Dataset(Dataset):
 
         # add the offset between camera and body to shift the center to query camera
         cam_pixel = q2r_gt*camera_center_loc
-        cam_location_x = x_sg + satellite_ori_size / 2.0 + cam_pixel[0,0]
-        cam_location_y = y_sg + satellite_ori_size / 2.0 + cam_pixel[0,1]
+        cam_location_x = x_sg + satellite_ori_size / 2.0 + cam_pixel[0, 0]
+        cam_location_y = y_sg + satellite_ori_size / 2.0 + cam_pixel[0, 1]
 
         # sat
         camera = Camera.from_colmap(dict(
@@ -274,8 +276,20 @@ class _Dataset(Dataset):
         num_diff = self.conf.max_num_points3D - len(key_points)
         if num_diff < 0:
             # select max_num_points
-            sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
-            key_points = key_points[sample_idx]
+            if self.conf.sampling == 'random':
+                sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
+                key_points = key_points[sample_idx]
+            elif self.conf.sampling == 'random_fps':
+                rand_idx = torch.randperm(key_points.size(0))
+                key_points = key_points[rand_idx].unsqueeze(dim=0)
+                points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
+                key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
+                key_points = key_points.squeeze(dim=0)
+            elif self.conf.sampling == 'fps':
+                key_points = key_points.unsqueeze(dim=0)
+                points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
+                key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
+                key_points = key_points.squeeze(dim=0)
         elif num_diff > 0 and self.conf.force_num_points3D:
             point_add = torch.ones((num_diff, 3)) * key_points[-1]
             key_points = torch.cat([key_points, point_add], dim=0)

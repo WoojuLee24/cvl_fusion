@@ -26,7 +26,8 @@ data_conf = {
     'train_batch_size': 1,
     'test_batch_size': 2,
     'num_workers': 0,
-    'satmap_zoom': 18
+    'satmap_zoom': 18,
+    "sampling":  'random_fps',
 }
 
 
@@ -354,7 +355,7 @@ if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    save_path = '/ws/external/visualization/3d_1216_sibcl.set'
+    save_path = '/ws/external/visualization/3d_1220_random_fps1024'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
