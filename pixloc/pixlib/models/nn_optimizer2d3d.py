@@ -193,6 +193,8 @@ class NNOptimizer2D3D(BaseOptimizer):
 
                 # rescaling
                 delta = delta * shift_range
+                delta_mask = torch.tensor([[0, 0, 1]], dtype=torch.float32).to(delta.device)
+                delta = delta * delta_mask
                 shiftxyr += delta
 
                 dt, dw = delta.split([2, 1], dim=-1)
@@ -232,6 +234,8 @@ class NNOptimizer2D3D(BaseOptimizer):
 
                 # rescaling
                 delta = delta * shift_range
+                delta_mask = torch.tensor([[1, 1, 0]], dtype=torch.float32).to(delta.device)
+                delta = delta * delta_mask
                 shiftxyr += delta
 
                 dt, dw = delta.split([2, 1], dim=-1)
