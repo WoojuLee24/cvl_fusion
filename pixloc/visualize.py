@@ -27,7 +27,7 @@ data_conf = {
     'test_batch_size': 2,
     'num_workers': 0,
     'satmap_zoom': 18,
-    "sampling":  'random_fps',
+    "sampling":  'random',
 }
 
 
@@ -190,9 +190,11 @@ def Val(refiner, val_loader, save_path, best_result):
             c, a, a = imr1.size()
             c, h, w = imq1.size()
             uv1 = get_warp_sat2real(imr1)
+            uv1 = uv1.reshape(-1, 3).contiguous() # 1d case
             uv1 = data['T_q2r_gt'].cuda().inv() * uv1
             # uv, mask = cam_query.world2image(uv1)
             uv, mask = data['query']['camera'].cuda().world2image(uv1)
+            uv = uv.reshape(a, a, 2).contiguous()
 
             scale = torch.tensor([w - 1, h - 1]).to(uv)
             uv = (uv / scale) * 2 - 1
@@ -355,7 +357,7 @@ if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    save_path = '/ws/external/visualization/3d_1220_random_fps1024'
+    save_path = '/ws/external/visualization/3d_1222'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 

@@ -214,7 +214,7 @@ def get_warp_sat2real(F_ref):
         [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
 
     # inv equation (1)
-    meter_per_pixel = 0.298548836  # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512)
+    meter_per_pixel = 0.07463721 # 0.07463721 # 0.298548836 / 5 # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512)
     meter_per_pixel *= 1280 / satmap_sidelength
     # R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
     # Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
