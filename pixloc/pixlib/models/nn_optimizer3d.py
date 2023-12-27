@@ -44,6 +44,7 @@ class NNOptimizer3D(BaseOptimizer):
         coe_lon=1.,
         coe_rot=1.,
         range=True, # 'none',   # 'r', 't', 'rt'
+        cascade=False,
         linearp=False,
         attention=False,
         mask=False,

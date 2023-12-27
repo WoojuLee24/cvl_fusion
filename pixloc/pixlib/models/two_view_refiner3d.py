@@ -50,7 +50,8 @@ class TwoViewRefiner3D(BaseModel):
             'coe_lat': 1.,
             'coe_lon': 1.,
             'coe_rot': 1.,
-            'attention': False
+            'cascade': False,
+            'attention': False,
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -146,7 +147,11 @@ class TwoViewRefiner3D(BaseModel):
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
             pred['shiftxyr'].append(shiftxyr)
-            T_init = T_opt.detach()
+
+            if self.conf.optimizer.cascade:
+                T_init = T_opt
+            else:
+                T_init = T_opt.detach()
 
             # query & reprojection GT error, for query unet back propogate  # PAB Loss
             if self.conf.optimizer.pose_loss: #pose_loss:
