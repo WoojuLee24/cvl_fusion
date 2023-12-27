@@ -90,6 +90,7 @@ class NNOptimizer2D3D(BaseOptimizer):
 
         lambda_ = self.dampingnet()
         shiftxyr = torch.zeros_like(shift_range)
+        shift1 = None
 
         if mode == 1:
             # RGB
@@ -270,10 +271,283 @@ class NNOptimizer2D3D(BaseOptimizer):
 
                 self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
 
+        elif mode == 3:
+            # RGB
+            for i in range(self.conf.num_iters):
+                F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
+
+                # save_path = '3d_1226'
+                # from pixloc.visualization.viz_2d import imsave
+                # imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
+
+                # # solve the nn optimizer
+                delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
+
+                # rescaling
+                delta = delta * shift_range
+                delta_mask = torch.tensor([[0, 0, 1]], dtype=torch.float32).to(delta.device)
+                delta = delta * delta_mask
+                shiftxyr += delta
+
+                dt, dw = delta.split([2, 1], dim=-1)
+                B = dw.size(0)
+
+                cos = torch.cos(dw)
+                sin = torch.sin(dw)
+                zeros = torch.zeros_like(cos)
+                ones = torch.ones_like(cos)
+                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+                dt = torch.cat([zeros, zeros, zeros], dim=-1)
+
+                T_delta = Pose.from_Rt(dR, dt)
+                T = T_delta @ T
+
+                self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
+
+                # fusion
+                # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
+                res, valid, w_unc, F_ref_key, info = self.cost_fn.residuals(T, *args)
+                p3D_ref = T * p3D
+
+                if mask is not None:
+                    valid &= mask
+                failed = failed | (valid.long().sum(-1) < 10)  # too few points
+
+                if self.conf.mask:
+                    valid = valid.float().unsqueeze(dim=-1).detach()
+                    F_q_key = F_q_key * valid
+                    F_ref_key = F_ref_key * valid
+                    p3D = p3D * valid
+                    p3D_ref = p3D_ref * valid
+
+                # # solve the nn optimizer
+                delta = self.nnrefine(F_q_key, F_ref_key, p3D, p3D_ref, scale)
+
+                # rescaling
+                delta = delta * shift_range
+                shiftxyr += delta
+
+                dt, dw = delta.split([2, 1], dim=-1)
+                B = dw.size(0)
+
+                dw = torch.zeros_like(dw)
+                cos = torch.cos(dw)
+                sin = torch.sin(dw)
+                zeros = torch.zeros_like(cos)
+                ones = torch.ones_like(cos)
+                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+
+                dt = torch.cat([dt, zeros], dim=-1)
+
+                T_delta = Pose.from_Rt(dR, dt)
+
+                if self.conf.range == True:
+                    shift = (T_delta @ T) @ T_init.inv()
+                    B = dt.size(0)
+                    t = shift.t[:, :2]
+                    rand_t = torch.distributions.uniform.Uniform(-1, 1).sample([B, 2]).to(dt.device)
+                    rand_t.requires_grad = True
+                    t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
+                    zero = torch.zeros([B, 1]).to(t.device)
+                    # zero = shift.t[:, 2:3]
+                    t = torch.cat([t, zero], dim=1)
+                    shift._data[..., -3:] = t
+                    T = shift @ T_init  # TODO
+                else:
+                    T = T_delta @ T
+
+                self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
+
+        elif mode == 4:
+            """ shift1 is shift error for rtreproj loss"""
+            shift1 = torch.zeros_like(shift_range)
+            # RGB
+            for i in range(self.conf.num_iters):
+                F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
+
+                # save_path = '3d_1226'
+                # from pixloc.visualization.viz_2d import imsave
+                # imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
+
+                # # solve the nn optimizer
+                delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
+
+                # rescaling
+                delta = delta * shift_range
+                # delta_mask = torch.tensor([[0, 0, 1]], dtype=torch.float32).to(delta.device)
+                # delta = delta * delta_mask
+                shift1 += delta
+                shiftxyr += delta
+
+                dt, dw = delta.split([2, 1], dim=-1)
+                B = dw.size(0)
+
+                cos = torch.cos(dw)
+                sin = torch.sin(dw)
+                zeros = torch.zeros_like(cos)
+                ones = torch.ones_like(cos)
+                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+                dt = torch.cat([zeros, zeros, zeros], dim=-1)
+
+                T_delta = Pose.from_Rt(dR, dt)
+                T = T_delta @ T
+
+                self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
+
+                # fusion
+                # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
+                res, valid, w_unc, F_ref_key, info = self.cost_fn.residuals(T, *args)
+                p3D_ref = T * p3D
+
+                if mask is not None:
+                    valid &= mask
+                failed = failed | (valid.long().sum(-1) < 10)  # too few points
+
+                if self.conf.mask:
+                    valid = valid.float().unsqueeze(dim=-1).detach()
+                    F_q_key = F_q_key * valid
+                    F_ref_key = F_ref_key * valid
+                    p3D = p3D * valid
+                    p3D_ref = p3D_ref * valid
+
+                # # solve the nn optimizer
+                delta = self.nnrefine(F_q_key, F_ref_key, p3D, p3D_ref, scale)
+
+                # rescaling
+                delta = delta * shift_range
+                shiftxyr += delta
+
+                dt, dw = delta.split([2, 1], dim=-1)
+                B = dw.size(0)
+
+                dw = torch.zeros_like(dw)
+                cos = torch.cos(dw)
+                sin = torch.sin(dw)
+                zeros = torch.zeros_like(cos)
+                ones = torch.ones_like(cos)
+                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+
+                dt = torch.cat([dt, zeros], dim=-1)
+
+                T_delta = Pose.from_Rt(dR, dt)
+
+                if self.conf.range == True:
+                    shift = (T_delta @ T) @ T_init.inv()
+                    B = dt.size(0)
+                    t = shift.t[:, :2]
+                    rand_t = torch.distributions.uniform.Uniform(-1, 1).sample([B, 2]).to(dt.device)
+                    rand_t.requires_grad = True
+                    t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
+                    zero = torch.zeros([B, 1]).to(t.device)
+                    # zero = shift.t[:, 2:3]
+                    t = torch.cat([t, zero], dim=1)
+                    shift._data[..., -3:] = t
+                    T = shift @ T_init  # TODO
+                else:
+                    T = T_delta @ T
+
+                self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
+
+        elif mode == 5:
+            """ shift1 is T1 for reprojx2 loss"""
+            # RGB
+            for i in range(self.conf.num_iters):
+                F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
+
+                # save_path = '3d_1226'
+                # from pixloc.visualization.viz_2d import imsave
+                # imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
+
+                # # solve the nn optimizer
+                delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
+
+                # rescaling
+                delta = delta * shift_range
+                # delta_mask = torch.tensor([[0, 0, 1]], dtype=torch.float32).to(delta.device)
+                # delta = delta * delta_mask
+                shiftxyr += delta
+
+                dt, dw = delta.split([2, 1], dim=-1)
+                B = dw.size(0)
+
+                cos = torch.cos(dw)
+                sin = torch.sin(dw)
+                zeros = torch.zeros_like(cos)
+                ones = torch.ones_like(cos)
+                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+                dt = torch.cat([zeros, zeros, zeros], dim=-1)
+
+                T_delta = Pose.from_Rt(dR, dt)
+                T1 = T_delta @ T
+                shift1 = T1
+
+                self.log(i=i, T_init=T_init, T=T1, T_delta=T_delta)
+
+                # fusion
+                # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
+                res, valid, w_unc, F_ref_key, info = self.cost_fn.residuals(T1, *args)
+                p3D_ref = T1 * p3D
+
+                if mask is not None:
+                    valid &= mask
+                failed = failed | (valid.long().sum(-1) < 10)  # too few points
+
+                if self.conf.mask:
+                    valid = valid.float().unsqueeze(dim=-1).detach()
+                    F_q_key = F_q_key * valid
+                    F_ref_key = F_ref_key * valid
+                    p3D = p3D * valid
+                    p3D_ref = p3D_ref * valid
+
+                # # solve the nn optimizer
+                delta = self.nnrefine(F_q_key, F_ref_key, p3D, p3D_ref, scale)
+
+                # rescaling
+                delta = delta * shift_range
+                shiftxyr += delta
+
+                dt, dw = delta.split([2, 1], dim=-1)
+                B = dw.size(0)
+
+                dw = torch.zeros_like(dw)
+                cos = torch.cos(dw)
+                sin = torch.sin(dw)
+                zeros = torch.zeros_like(cos)
+                ones = torch.ones_like(cos)
+                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+
+                dt = torch.cat([dt, zeros], dim=-1)
+
+                T_delta = Pose.from_Rt(dR, dt)
+
+                if self.conf.range == True:
+                    shift = (T_delta @ T1) @ T_init.inv()
+                    B = dt.size(0)
+                    t = shift.t[:, :2]
+                    rand_t = torch.distributions.uniform.Uniform(-1, 1).sample([B, 2]).to(dt.device)
+                    rand_t.requires_grad = True
+                    t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
+                    zero = torch.zeros([B, 1]).to(t.device)
+                    # zero = shift.t[:, 2:3]
+                    t = torch.cat([t, zero], dim=1)
+                    shift._data[..., -3:] = t
+                    T = shift @ T_init  # TODO
+                else:
+                    T = T_delta @ T1
+
+                self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
+
+
         if failed.any():
             logger.debug('One batch element had too few valid points.')
 
-        return T, failed, shiftxyr
+        return T, failed, shiftxyr, shift1
 
     def project_grd_to_map(self, T, cam_q, F_query, F_ref):
         # g2s with GH and T
