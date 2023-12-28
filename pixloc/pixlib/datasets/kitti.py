@@ -280,21 +280,41 @@ class _Dataset(Dataset):
                 sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
                 key_points = key_points[sample_idx]
             elif self.conf.sampling == 'range':
-                max_depth = key_points[..., -1].max()
-                key_points1 = key_points[(key_points[..., -1] <= max_depth / 4)]
-                sample_idx1 = np.random.choice(range(len(key_points1)), self.conf.max_num_points3D // 4)
-                key_points1 = key_points1[sample_idx1]
-                key_points2 = key_points[(key_points[..., -1] > max_depth / 4) & (key_points[..., -1] <= max_depth / 4 * 2)]
-                sample_idx2 = np.random.choice(range(len(key_points2)), self.conf.max_num_points3D // 4)
-                key_points2 = key_points2[sample_idx2]
-                key_points3 = key_points[(key_points[..., -1] > max_depth / 4 * 2) & (key_points[..., -1] <= max_depth / 4 * 3)]
-                sample_idx3 = np.random.choice(range(len(key_points3)), self.conf.max_num_points3D // 4)
-                key_points3 = key_points3[sample_idx3]
-                key_points4 = key_points[(key_points[..., -1] > max_depth / 4 * 3)]
-                sample_idx4 = np.random.choice(range(len(key_points4)), self.conf.max_num_points3D // 4)
-                key_points4 = key_points4[sample_idx4]
+                sorted, indices = torch.sort(key_points[..., -1], descending=True)
+                key_points = key_points[indices]
+                key_points_num = len(key_points)
 
-                key_points = torch.cat([key_points1, key_points2, key_points3, key_points4], dim=0).detach()
+                key_points_list = []
+                for i in range(4):
+                    begin = key_points_num // 4 * i
+                    end = key_points_num // 4 * (i+1)
+                    key_points_ = key_points[begin:end]
+                    sample_idx = np.random.choice(range(len(key_points_)), self.conf.max_num_points3D // 4)
+                    key_points_ = key_points_[sample_idx]
+                    key_points_list.append(key_points_)
+
+                key_points = torch.cat(key_points_list, dim=0)
+                idx = torch.randperm(key_points.shape[0])
+                key_points = key_points[idx].detach()
+
+                # max_depth = key_points[..., -1].max()
+                # if len(key_points) < 4:
+                #     print("error")
+                # key_points1 = key_points[(key_points[..., -1] <= max_depth / 4)]
+                # if len(key_points1) < 1:
+                #     print("error")
+                # sample_idx1 = np.random.choice(range(len(key_points1)), self.conf.max_num_points3D // 4)
+                # key_points1 = key_points1[sample_idx1]
+                # key_points2 = key_points[(key_points[..., -1] > max_depth / 4) & (key_points[..., -1] <= max_depth / 4 * 2)]
+                # sample_idx2 = np.random.choice(range(len(key_points2)), self.conf.max_num_points3D // 4)
+                # key_points2 = key_points2[sample_idx2]
+                # key_points3 = key_points[(key_points[..., -1] > max_depth / 4 * 2) & (key_points[..., -1] <= max_depth / 4 * 3)]
+                # sample_idx3 = np.random.choice(range(len(key_points3)), self.conf.max_num_points3D // 4)
+                # key_points3 = key_points3[sample_idx3]
+                # key_points4 = key_points[(key_points[..., -1] > max_depth / 4 * 3)]
+                # sample_idx4 = np.random.choice(range(len(key_points4)), self.conf.max_num_points3D // 4)
+                # key_points4 = key_points4[sample_idx4]
+                # key_points = torch.cat([key_points1, key_points2, key_points3, key_points4], dim=0).detach()
 
             elif self.conf.sampling == 'random_fps':
                 rand_idx = torch.randperm(key_points.size(0))
