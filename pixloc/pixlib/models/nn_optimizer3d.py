@@ -44,6 +44,7 @@ class NNOptimizer3D(BaseOptimizer):
         coe_lon=1.,
         coe_rot=1.,
         range=True, # 'none',   # 'r', 't', 'rt'
+        shift_range='default', # default: half_range, range_same, same w.r.t data.shift_range
         cascade=False,
         linearp=False,
         attention=False,
@@ -135,7 +136,12 @@ class NNOptimizer3D(BaseOptimizer):
                 T_delta = Pose.from_aa(dw, dt)
             elif self.conf.pose_from == 'rt':
                 # rescaling
-                delta = delta * shift_range
+                if self.conf.shift_range == 'same':
+                    delta = 2 * delta * shift_range - shift_range
+                elif self.conf.shift_range == 'range_same':
+                    delta = 2 * delta * shift_range
+                else:
+                    delta = delta * shift_range
                 shiftxyr += delta
 
                 dt, dw = delta.split([2, 1], dim=-1)
@@ -159,7 +165,17 @@ class NNOptimizer3D(BaseOptimizer):
                 t = shift.t[:, :2]
                 rand_t = torch.distributions.uniform.Uniform(-1, 1).sample([B, 2]).to(dt.device)
                 rand_t.requires_grad = True
-                t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
+                if self.conf.shift_range == 'same':
+                    a = - 2 * shift_range[0][0] - shift_range[0][0]
+                    b = 2 * shift_range[0][0] - shift_range[0][0]
+                elif self.conf.shift_range == 'range_same':
+                    a = - 2 * shift_range[0][0]
+                    b = 2 * shift_range[0][0]
+                else:
+                    a = -shift_range[0][0]
+                    b = shift_range[0][0]
+                t = torch.where((t > a) & (t < b), t, rand_t)
+                # t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
                 zero = torch.zeros([B, 1]).to(t.device)
                 # zero = shift.t[:, 2:3]
                 t = torch.cat([t, zero], dim=1)

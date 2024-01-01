@@ -52,6 +52,7 @@ class TwoViewRefiner3D(BaseModel):
             'coe_rot': 1.,
             'cascade': False,
             'attention': False,
+            'shift_range': 'default',
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,

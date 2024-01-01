@@ -46,6 +46,7 @@ class Kitti(BaseDataset):
         'trans_range': 5,
         'satmap_zoom': 18,
         'sampling': 'random',
+        'offset': True,
     }
 
     def _init(self, conf):
@@ -333,14 +334,20 @@ class _Dataset(Dataset):
         grd_image['points3D'] = key_points
 
         # ramdom shift translation and ratation on yaw
-        YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
-        yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
-        R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
-        TShiftRange = self.conf.trans_range # 5  # SIBCL: 5 meter, cvl: 10 meter
-        T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
-        # T[0] = 0 # debug: no shift on lon
-        # T[1] = 0  # debug: no shift on lat
-        T[2] = 0  # no shift on height
+        if self.conf.offset:
+            YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
+            yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
+            R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
+            TShiftRange = self.conf.trans_range # 5  # SIBCL: 5 meter, cvl: 10 meter
+            T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
+            T[2] = 0  # no shift on height
+        else:
+            YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
+            yaw = 2 * YawShiftRange * np.random.random()
+            R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
+            TShiftRange = self.conf.trans_range  # 5  # SIBCL: 5 meter, cvl: 10 meter
+            T = 2 * TShiftRange * np.random.rand((3))
+            T[2] = 0  # no shift on height
 
         shift = Pose.from_Rt(R_yaw, T)
         q2r_init = shift @ q2r_gt
