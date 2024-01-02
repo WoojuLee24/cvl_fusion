@@ -271,6 +271,13 @@ class NNrefinev0_1(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(64, 1)
                                          )
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
 
         elif self.args.pool == 'embed_aap2':
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
@@ -282,23 +289,24 @@ class NNrefinev0_1(nn.Module):
                                          )
             self.cout *= 16
 
-        self.mapping = nn.Sequential(nn.ReLU(inplace=False),
-                                     nn.Linear(self.cout, 128),
-                                     nn.ReLU(inplace=False),
-                                     nn.Linear(128, 32),
-                                     nn.ReLU(inplace=False),
-                                     nn.Linear(32, self.yout),
-                                     nn.Tanh())
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
 
-        # elif self.args.pool == 'aap2':
-        #     self.pool = nn.AdaptiveAvgPool1d(4096 // 64)
-        #     self.mapping = nn.Sequential(nn.ReLU(inplace=True),
-        #                                  nn.Linear(4096 // 64, 1024),
-        #                                  nn.ReLU(inplace=True),
-        #                                  nn.Linear(1024, 32),
-        #                                  nn.ReLU(inplace=True),
-        #                                  nn.Linear(32, 3),
-        #                                  nn.Tanh())
+        elif self.args.pool == 'aap2':
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D * self.cout, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, self.yout),
+                                         nn.Tanh()
+                                         )
+
 
 
     def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale):
@@ -340,14 +348,19 @@ class NNrefinev0_1(nn.Module):
 
         if self.args.pool == 'max':
             x = torch.max(x, 1, keepdim=True)[0]
+            x = x.view(B, -1)
+            y = self.mapping(x)  # [B, 3]
         elif 'embed' in self.args.pool:
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
+            x = x.view(B, -1)
+            y = self.mapping(x)  # [B, 3]
         elif self.args.pool == 'avg':
             x = torch.mean(x, 1, keepdim=True)
-
-        # if self.args.pool == 'none':
-        x = x.view(B, -1)
-        y = self.mapping(x)  # [B, 3]
+            x = x.view(B, -1)
+            y = self.mapping(x)  # [B, 3]
+        elif self.args.pool == 'aap2':
+            x = x.view(B, -1)
+            y = self.mapping(x)  # [B, 3]
 
         return y
