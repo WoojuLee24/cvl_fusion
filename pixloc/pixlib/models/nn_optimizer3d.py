@@ -43,6 +43,8 @@ class NNOptimizer3D(BaseOptimizer):
         coe_lat=1.,
         coe_lon=1.,
         coe_rot=1.,
+        trans_range=1.,
+        rot_range=1.,
         range=True, # 'none',   # 'r', 't', 'rt'
         cascade=False,
         linearp=False,
@@ -135,7 +137,10 @@ class NNOptimizer3D(BaseOptimizer):
                 T_delta = Pose.from_aa(dw, dt)
             elif self.conf.pose_from == 'rt':
                 # rescaling
-                delta = delta * shift_range
+                mul_range = torch.tensor([[self.conf.trans_range, self.conf.trans_range, self.conf.rot_range]], dtype=torch.float32)
+                mul_range = mul_range.to(shift_range.device)
+                shift_range = shift_range * mul_range
+                delta = delta * shift_range.detach()
                 shiftxyr += delta
 
                 dt, dw = delta.split([2, 1], dim=-1)
