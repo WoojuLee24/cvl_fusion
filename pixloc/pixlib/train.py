@@ -505,6 +505,30 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
             if stop:
                 break
 
+        # if rank == 0:
+        #     state = (model.module if args.distributed else model).state_dict()
+        #     checkpoint = {
+        #         'model': state,
+        #         'optimizer': optimizer.state_dict(),
+        #         'lr_scheduler': lr_scheduler.state_dict(),
+        #         'conf': OmegaConf.to_container(conf, resolve=True),
+        #         'epoch': epoch,
+        #         'losses': losses_,
+        #         'eval': results,
+        #     }
+        #     cp_name = f'checkpoint_{epoch}' + ('_interrupted' if stop else '')
+        #     logger.info(f'Saving checkpoint {cp_name}')
+        #     cp_path = str(output_dir / (cp_name + '.tar'))
+        #     torch.save(checkpoint, cp_path)
+        #     if results[conf.train.best_key] < best_eval:
+        #         best_eval = results[conf.train.best_key]
+        #         logger.info(
+        #             f'New best checkpoint: {conf.train.best_key}={best_eval}')
+        #         shutil.copy(cp_path, str(output_dir / 'checkpoint_best.tar'))
+        #     delete_old_checkpoints(
+        #         output_dir, conf.train.keep_last_checkpoints)
+        #     del checkpoint
+
         if rank == 0:
             state = (model.module if args.distributed else model).state_dict()
             checkpoint = {
@@ -518,13 +542,15 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
             }
             cp_name = f'checkpoint_{epoch}' + ('_interrupted' if stop else '')
             logger.info(f'Saving checkpoint {cp_name}')
-            cp_path = str(output_dir / (cp_name + '.tar'))
-            torch.save(checkpoint, cp_path)
+            # cp_path = str(output_dir / (cp_name + '.tar'))
+            # torch.save(checkpoint, cp_path)
             if results[conf.train.best_key] < best_eval:
                 best_eval = results[conf.train.best_key]
                 logger.info(
                     f'New best checkpoint: {conf.train.best_key}={best_eval}')
-                shutil.copy(cp_path, str(output_dir / 'checkpoint_best.tar'))
+                # shutil.copy(cp_path, str(output_dir / 'checkpoint_best.tar'))
+                cp_path = str(output_dir / 'checkpoint_best.tar')
+                torch.save(checkpoint, cp_path)
             delete_old_checkpoints(
                 output_dir, conf.train.keep_last_checkpoints)
             del checkpoint
