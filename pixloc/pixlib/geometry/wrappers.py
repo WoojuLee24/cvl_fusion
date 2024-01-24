@@ -12,8 +12,8 @@ import numpy as np
 
 from .optimization import skew_symmetric, so3exp_map
 from .utils import undistort_points, J_undistort_points
-from pytorch3d.structures import Pointclouds, Volumes
-from pytorch3d.ops import add_pointclouds_to_volumes
+# from pytorch3d.structures import Pointclouds, Volumes
+# from pytorch3d.ops import add_pointclouds_to_volumes
 
 
 def autocast(func):

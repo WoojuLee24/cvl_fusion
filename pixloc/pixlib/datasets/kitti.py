@@ -19,7 +19,7 @@ import kitti_data_process.Kitti_gps_coord_func as gps_func
 import random
 import cv2
 from pixloc.pixlib.geometry import Camera, Pose
-from pytorch3d.ops import sample_farthest_points
+# from pytorch3d.ops import sample_farthest_points
 
 root_dir = "/ws/data/kitti-vo" # your kitti dir
 satmap_zoom = 18 
@@ -46,6 +46,7 @@ class Kitti(BaseDataset):
         'trans_range': 5,
         'satmap_zoom': 18,
         'sampling': 'random',
+        'pose_from': 'aa',
     }
 
     def _init(self, conf):
@@ -228,11 +229,20 @@ class _Dataset(Dataset):
             'T_w2cam': Pose.from_4x4mat(np.eye(4)).float(),  # already consider calibration in points3D
         }
 
-        grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]), np.zeros(3)) # grd_x:east, grd_y:north, grd_z:up
-        grd2cam = imu2camera@grd2imu
-        grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])# grd z->-sat z; grd x->sat x, grd y->-sat y
-        grd2sat = Pose.from_4x4mat(grd2sat)
-        q2r_gt = grd2sat @ (grd2cam.inv())
+        if self.conf.pose_from == 'aa':
+            grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]), np.zeros(3)) # grd_x:east, grd_y:north, grd_z:up
+            grd2cam = imu2camera@grd2imu
+            grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])# grd z->-sat z; grd x->sat x, grd y->-sat y
+            grd2sat = Pose.from_4x4mat(grd2sat)
+            q2r_gt = grd2sat @ (grd2cam.inv())
+        elif self.conf.pose_from == 'rt':
+            R = np.array([[np.cos(-heading), -np.sin(-heading), 0], [np.sin(-heading), np.cos(-heading), 0], [0, 0, 1.]])
+            t = np.zeros(3)
+            grd2imu = Pose.from_Rt(R, t)
+            grd2cam = imu2camera @ grd2imu
+            grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
+            grd2sat = Pose.from_4x4mat(grd2sat)
+            q2r_gt = grd2sat @ (grd2cam.inv())
 
         # satellite map
         SatMap_name = self.sat_pair.item().get(file_name)
