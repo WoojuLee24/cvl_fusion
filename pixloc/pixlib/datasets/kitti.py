@@ -60,7 +60,7 @@ class Kitti(BaseDataset):
         dataset = _Dataset(self.conf, split)
 
         # augmentation
-        if 'augmix' in self.conf.aug:
+        if split == 'train' and 'augmix' in self.conf.aug:
             dataset = AugMixDataset(args=self.conf, dataset=dataset, severity=self.conf.aug_severity)
 
         return dataset
