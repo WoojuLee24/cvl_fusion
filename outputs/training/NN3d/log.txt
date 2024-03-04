@@ -1,0 +1,6 @@
+[03/04/2024 07:32:01 pixloc INFO] Using device cuda
+/ws/external/pixloc/pixlib/geometry/optimization.py:20: SyntaxWarning: "is" with a literal. Did you mean "=="?
+  if lambda_ is 0:  # noqa
+[03/04/2024 07:32:01 pixloc.pixlib.datasets.base_dataset INFO] Creating dataset Kitti
+[03/04/2024 07:33:03 pixloc INFO] Using device cuda
+[03/04/2024 07:33:03 pixloc.pixlib.datasets.base_dataset INFO] Creating dataset Kitti
