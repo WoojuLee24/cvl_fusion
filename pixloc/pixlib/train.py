@@ -27,8 +27,6 @@ from pixloc.settings import TRAINING_PATH
 from pixloc import logger
 
 from pixloc.pixlib.utils.wandb_logger import WandbLogger
-from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
-
 
 import datetime
 
@@ -312,10 +310,6 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         val_loader = dataset.get_data_loader('val')
         test_loader = dataset.get_data_loader('test', shuffle=False)
 
-    # augmentation
-    if 'augmix' in args.aug:
-        train_loader = AugMixDataset(args=args, dataset=train_loader, severity=args.aug_severity)
-
     if rank == 0:
         logger.info(f'Training loader has {len(train_loader)} batches')
         logger.info(f'Validation loader has {len(val_loader)} batches')
@@ -573,11 +567,11 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--dotlist', nargs='*', default=["data.name=kitti","data.max_num_points3D=4096","data.force_num_points3D=True",
                                                          "data.num_workers=4","data.train_batch_size=1","data.test_batch_size=1",
-                                                         "data.rot_range=10", "data.trans_range=10",
+                                                         "data.rot_range=10", "data.trans_range=10", "data.aug=none", "data.aug_severity=3",
                                                          "train.lr=1e-5","model.name=two_view_refiner",
                                                          "model.optimizer.max_num_points3D=4096"])
-    parser.add_argument('--aug', type=str, default='none', choices=['none', 'aug1', 'augmix1', 'augmix1.g'])
-    parser.add_argument('--aug_severity', type=float, default=3)
+    # parser.add_argument('--aug', type=str, default='none', choices=['none', 'aug1', 'augmix1', 'augmix1.g'])
+    # parser.add_argument('--aug_severity', type=float, default=3)
 
     parser.add_argument('--wandb', action='store_true', default=False)
 

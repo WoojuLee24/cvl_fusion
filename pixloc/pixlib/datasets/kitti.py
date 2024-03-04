@@ -19,6 +19,8 @@ import kitti_data_process.Kitti_gps_coord_func as gps_func
 import random
 import cv2
 from pixloc.pixlib.geometry import Camera, Pose
+from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
+
 # from pytorch3d.ops import sample_farthest_points
 
 root_dir = "/ws/data/kitti-vo" # your kitti dir
@@ -54,7 +56,14 @@ class Kitti(BaseDataset):
 
     def get_dataset(self, split):
         #assert split != 'test', 'Not supported'
-        return _Dataset(self.conf, split)
+
+        dataset = _Dataset(self.conf, split)
+
+        # augmentation
+        if 'augmix' in self.conf.aug:
+            dataset = AugMixDataset(args=self.conf, dataset=dataset, severity=self.conf.aug_severity)
+
+        return dataset
 
 def read_calib(calib_file_name, camera_id='rect_02'):
     with open(calib_file_name, 'r') as f:

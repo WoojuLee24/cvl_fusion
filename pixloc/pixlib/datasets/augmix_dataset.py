@@ -33,13 +33,15 @@ class AugMixDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, i):
 
-        if self.args.aug == 'augmix1':
-            self.dataset[i]['ref'] = self.augmix(self.dataset[i]['ref'])
-            self.dataset[i]['query'] = self.augmix(self.dataset[i]['query'])
-        elif self.args.aug == 'augmix1.g':
-            self.dataset[i]['query'] = self.augmix(self.dataset[i]['query'])
+        data = self.dataset[i]
 
-        return self.dataset[i]
+        if self.args.aug == 'augmix1':
+            data['ref']['image'] = self.augmix(data['ref']['image'])
+            data['query']['image'] = self.augmix(data['query']['image'])
+        elif self.args.aug == 'augmix1.g':
+            data['query']['image'] = self.augmix(data['query']['image'])
+
+        return data
 
     def __len__(self):
         return len(self.dataset)
