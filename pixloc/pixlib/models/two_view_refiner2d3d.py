@@ -153,7 +153,10 @@ class TwoViewRefiner2D3D(BaseModel):
             pred['shiftxyr'].append(shiftxyr)
             if shift1 != None:
                 pred['shift1'].append(shift1)
-            T_init = T_opt.detach() # ??
+            if self.conf.optimizer.cascade:
+                T_init = T_opt
+            else:
+                T_init = T_opt.detach()
 
             # query & reprojection GT error, for query unet back propogate  # PAB Loss
             if self.conf.optimizer.pose_loss: #pose_loss:

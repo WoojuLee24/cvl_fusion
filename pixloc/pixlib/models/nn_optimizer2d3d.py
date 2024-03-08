@@ -43,12 +43,15 @@ class NNOptimizer2D3D(BaseOptimizer):
         coe_lat=1.,
         coe_lon=1.,
         coe_rot=1.,
+        trans_range=1.,
+        rot_range=1.,
+        range=False,  # 'none',   # 'r', 't', 'rt'
+        cascade=False,
         linearp=False,
         attention=False,
-        mask=True,
+        mask=False,
         input_dim=[128, 128, 32],  # [32, 128, 128],
         pool_rgb='none',
-        range=True,  # 'none',
         mode=1, # 2
         # deprecated entries
         lambda_=0.,
@@ -144,23 +147,38 @@ class NNOptimizer2D3D(BaseOptimizer):
                 # # solve the nn optimizer
                 delta = self.nnrefine(F_q_key, F_ref_key, p3D, p3D_ref, scale)
 
-                # rescaling
-                delta = delta * shift_range
-                shiftxyr += delta
+                if self.conf.pose_from == 'aa':
+                    # compute the pose update
+                    dt, dw = delta.split([3, 3], dim=-1)
+                    # dt, dw = delta.split([2, 1], dim=-1)
+                    # fix z trans, roll and pitch
+                    zeros = torch.zeros_like(dw[:, -1:])
+                    dw = torch.cat([zeros, zeros, dw[:, -1:]], dim=-1)
+                    dt = torch.cat([dt[:, 0:2], zeros], dim=-1)
+                    T_delta = Pose.from_aa(dw, dt)
 
-                dt, dw = delta.split([2, 1], dim=-1)
-                B = dw.size(0)
+                elif self.conf.pose_from == 'rt':
+                    # rescaling
+                    mul_range = torch.tensor([[self.conf.trans_range, self.conf.trans_range, self.conf.rot_range]],
+                                             dtype=torch.float32)
+                    mul_range = mul_range.to(shift_range.device)
+                    shift_range = shift_range * mul_range
+                    delta = delta * shift_range.detach()
+                    shiftxyr += delta
 
-                cos = torch.cos(dw)
-                sin = torch.sin(dw)
-                zeros = torch.zeros_like(cos)
-                ones = torch.ones_like(cos)
-                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
-                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+                    dt, dw = delta.split([2, 1], dim=-1)
+                    B = dw.size(0)
 
-                dt = torch.cat([dt, zeros], dim=-1)
+                    cos = torch.cos(dw)
+                    sin = torch.sin(dw)
+                    zeros = torch.zeros_like(cos)
+                    ones = torch.ones_like(cos)
+                    dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+                    dR = dR.view(B, 3, 3)  # shape = [B,3,3]
 
-                T_delta = Pose.from_Rt(dR, dt)
+                    dt = torch.cat([dt, zeros], dim=-1)
+
+                    T_delta = Pose.from_Rt(dR, dt)
 
 
                 if self.conf.range == True:

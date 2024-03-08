@@ -45,12 +45,13 @@ class NNOptimizer3D(BaseOptimizer):
         coe_rot=1.,
         trans_range=1.,
         rot_range=1.,
-        range=True, # 'none',   # 'r', 't', 'rt'
+        range=False, # 'none',   # 'r', 't', 'rt'
         cascade=False,
         linearp=False,
         attention=False,
         mask=False,
         input_dim=[128, 128, 32],  # [32, 128, 128],
+        normalize_geometry='none',
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -92,6 +93,11 @@ class NNOptimizer3D(BaseOptimizer):
         for i in range(self.conf.num_iters):
             # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
             res, valid, w_unc, F_ref2D, info = self.cost_fn.residuals(T, *args)
+
+            if self.conf.normalize_geometry == 'zsn':
+                p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
+            elif self.conf.normalize_geometry == 'l2':
+                p3D = torch.nn.functional.normalize(p3D, dim=-1)
 
             p3D_ref = T * p3D
 

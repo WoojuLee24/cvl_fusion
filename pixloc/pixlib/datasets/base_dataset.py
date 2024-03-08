@@ -116,6 +116,7 @@ class BaseDataset(metaclass=ABCMeta):
         'batch_size': 1,
         'num_threads': 1,
         'seed': 0,
+        'aug': 'none',
     }
     default_conf = {}
 
