@@ -117,6 +117,7 @@ class BaseDataset(metaclass=ABCMeta):
         'num_threads': 1,
         'seed': 0,
         'aug': 'none',
+        'aug_severity': 3,
     }
     default_conf = {}
 
