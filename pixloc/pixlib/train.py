@@ -11,6 +11,7 @@ import os
 import copy
 from collections import defaultdict
 
+import matplotlib.pyplot as plt
 from omegaconf import OmegaConf
 from omegaconf import open_dict
 from tqdm import tqdm
@@ -27,7 +28,8 @@ from pixloc.settings import TRAINING_PATH
 from pixloc import logger
 
 from pixloc.pixlib.utils.wandb_logger import WandbLogger
-
+from pixloc.pixlib.datasets.kitti_voc import corruptions
+from pixloc.pixlib.utils.experiments import load_experiment
 import datetime
 
 default_train_conf = {
@@ -49,7 +51,6 @@ default_train_conf = {
     'clip_grad': None,
 }
 default_train_conf = OmegaConf.create(default_train_conf)
-
 
 def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, wandb_logger=None):
     model.eval()
@@ -110,7 +111,9 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     return results
 
 
-def test(model, test_loader, wandb_logger=None):
+def test_basic(dataset, model, wandb_logger=None):
+    test_loader = dataset.get_data_loader('test', shuffle=False)
+
     model.eval()
     errR = torch.tensor([])
     errlong = torch.tensor([])
@@ -170,6 +173,93 @@ def test(model, test_loader, wandb_logger=None):
 
     return
 
+def test_kitti_voc(dataset, model, wandb_logger=None):
+    # load dataloader
+    test_loaders = {}
+    for corruption in corruptions:
+        test_loader = dataset.get_corruption_data_loader(corruption)
+        test_loaders[corruption] = test_loader
+
+    # test
+    model.eval()
+    total_err = {}
+    for corruption, test_loader in test_loaders.items():
+        severity_err = torch.zeros(5, 3, len(test_loader)) # [severity, output(r, long, lat), # of test data]
+
+        for idx, data in enumerate(tqdm(test_loader)):
+            severity_images = data['query']['image'].copy()
+            for severity in range(1, 6):
+                data['query']['image'] = severity_images[severity] # it use only a specific severity grd image
+
+                data_ = batch_to_device(data, device='cuda')
+                # logger.set(data_)
+                pred_ = model(data_)
+                metrics = model.metrics(pred_, data_)
+
+                severity_err[severity - 1, 0, idx] = metrics['R_error'].cpu().data
+                severity_err[severity - 1, 1, idx] = metrics['long_error'].cpu().data
+                severity_err[severity - 1, 2, idx] = metrics['lat_error'].cpu().data
+
+                del pred_, data_
+        total_err[corruption] = severity_err
+
+    # print
+    for corruption, severity_err in total_err.items():
+        logger.info(f'[corruption: {corruption}]')
+        for severity in range(5):
+            err = severity_err[severity]
+            logger.info(f'- [{severity + 1}] acc of lat<=1:{torch.sum(err[2] <= 1) / err[2].size(0)}')
+            logger.info(f'- [{severity + 1}] acc of long<=1:{torch.sum(err[1] <= 1) / err[1].size(0)}')
+            logger.info(f'- [{severity + 1}] acc of R<=1:{torch.sum(err[0] <= 1) / err[0].size(0)}')
+
+            logger.info(f'- [{severity + 1}] mean errR:{torch.mean(err[0])}, errlat:{torch.mean(err[2])}, errlong:{torch.mean(err[1])}')
+            logger.info(f'- [{severity + 1}] var errR:{torch.var(err[0])}, errlat:{torch.var(err[2])}, errlong:{torch.var(err[1])}')
+            logger.info(f'- [{severity + 1}] median errR:{torch.median(err[0])}, errlat:{torch.median(err[2])}, errlong:{torch.median(err[1])}')
+
+        sum_err = torch.sum(severity_err <= 1, dim=[0, 2])
+        logger.info(f'- [total] acc of lat<=1:{sum_err[2] / (5 * severity_err.size(2))}')
+        logger.info(f'- [total] acc of long<=1:{sum_err[1] / (5 * severity_err.size(2))}')
+        logger.info(f'- [total] acc of R<=1:{sum_err[0] / (5 * severity_err.size(2))}')
+
+        logger.info(f'- [total] mean errR:{torch.mean(severity_err[:, 0, :])}, errlat:{torch.mean(severity_err[:, 2, :])}, errlong:{torch.mean(severity_err[:, 1, :])}')
+        logger.info(f'- [total] var errR:{torch.var(severity_err[:, 0, :])}, errlat:{torch.var(severity_err[:, 2, :])}, errlong:{torch.var(severity_err[:, 1, :])}')
+        logger.info(f'- [total] median errR:{torch.median(severity_err[:, 0, :])}, errlat:{torch.median(severity_err[:, 2, :])}, errlong:{torch.median(severity_err[:, 1, :])}')
+
+    return
+
+def test(rank, conf, output_dir, args, wandb_logger=None):
+    if args.distributed:
+        logger.info(f'Training in distributed mode with {args.n_gpus} GPUs')
+        assert torch.cuda.is_available()
+        #torch.distributed.init_process_group(
+        #        backend='nccl', world_size=args.n_gpus, rank=rank,
+        #        init_method= 'env://')
+
+        # 1 gpu 1 progress
+        device = rank
+        # lock = Path(os.getcwd(),
+        #             f'distributed_lock_{os.getenv("LSB_JOBID", device)}')
+        # assert not Path(lock).exists(), lock
+        torch.distributed.init_process_group(
+                backend='nccl', world_size=args.n_gpus, rank=device, #'gloo'
+                init_method= 'file://'+str(args.lock_file),timeout=datetime.timedelta(seconds=60))
+        torch.cuda.set_device(device)
+    else:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    model = load_experiment(args.experiment, conf, ckpt=f'/ws/external/outputs/training/{args.experiment}/checkpoint_best.tar').to(device)
+
+    data_conf = copy.deepcopy(conf.data)
+    # load dataset
+    dataset = get_dataset(data_conf.name)(data_conf)
+
+    # test
+    if data_conf.name == 'kitti_voc':
+        test_kitti_voc(dataset, model)
+    else:
+        test_basic(dataset, model)
+
+    return
 
 def filter_parameters(params, regexp):
     '''Filter trainable parameters based on regular expressions.'''
@@ -397,10 +487,6 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                     OmegaConf.to_yaml(conf))
     losses_ = None
 
-    # debug
-    if args.test:
-        test(model, test_loader, wandb_logger=wandb_logger)
-        return 0
     # torch.cuda.empty_cache()  # should be cleared at the first iter
 
     while epoch < conf.train.epochs and not stop:
@@ -552,9 +638,15 @@ def main_worker(rank, conf, output_dir, args):
 
     if rank == 0:
         with capture_outputs(output_dir / 'log.txt'):
-            training(rank, conf, output_dir, args, wandb_logger)
+            if args.test:
+                test(rank, conf, output_dir, args, wandb_logger)
+            else:
+                training(rank, conf, output_dir, args, wandb_logger)
     else:
-        training(rank, conf, output_dir, args, wandb_logger)
+        if args.test:
+            test(rank, conf, output_dir, args, wandb_logger)
+        else:
+            training(rank, conf, output_dir, args, wandb_logger)
 
 
 if __name__ == '__main__':
