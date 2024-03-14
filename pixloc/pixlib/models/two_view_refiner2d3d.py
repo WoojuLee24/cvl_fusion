@@ -103,8 +103,8 @@ class TwoViewRefiner2D3D(BaseModel):
         T_init = data['T_q2r_init']
         pred['T_q2r_init'] = []
         pred['T_q2r_opt'] = []
-        pred['shift1'] = []
         pred['shiftxyr'] = []
+        pred['shiftxyr1'] = []
         pred['pose_loss'] = []
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
@@ -144,15 +144,15 @@ class TwoViewRefiner2D3D(BaseModel):
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
             ### Fusion ###
-            T_opt, failed, shiftxyr, shift1 = opt(dict(
+            T_opt, failed, shiftxyr, shiftxyr1 = opt(dict(
                 p3D=p3D_query, F_ref=F_ref, F_q=F_q, F_q_key=F_q_key, T_init=T_init, cam_ref=cam_ref, cam_q=cam_q,
                 mask=mask, W_ref_q=W_ref_q, data=data, scale=i, mode=self.conf.optimizer.mode))
 
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
             pred['shiftxyr'].append(shiftxyr)
-            if shift1 != None:
-                pred['shift1'].append(shift1)
+            if shiftxyr1 != None:
+                pred['shiftxyr1'].append(shiftxyr1)
             if self.conf.optimizer.cascade:
                 T_init = T_opt
             else:
@@ -263,6 +263,44 @@ class TwoViewRefiner2D3D(BaseModel):
 
         return losses
 
+    def rtreproj_loss(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+        shift_gt = data['shift_gt']
+        shift_init = torch.zeros_like(shift_gt)
+        coe = torch.tensor([[self.conf.optimizer.coe_lat,
+                             self.conf.optimizer.coe_lon,
+                             self.conf.optimizer.coe_rot]]).to(shift_init.device)
+
+        def shift_error(shift):
+            err = torch.sum(coe * (shift - shift_gt) ** 2, dim=-1)
+            # err = scaled_barron(1., 2.)(err)[0] / 4
+            # err = err.mean(dim=0, keepdim=True)
+            return err
+
+        err_init = shift_error(shift_init)
+        num_scales = len(self.extractor.scales)
+        # success = None
+        losses = {'total': 0.}
+
+        for i, shift in enumerate(pred['shiftxyr1']):
+            err = shift_error(shift)
+            loss = err / num_scales
+            # if i > 0:
+            #     loss = loss * success.float()
+            # thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
+            # success = err < thresh
+            losses[f'shift_error/{i}'] = err
+            losses['total'] += loss
+
+        losses['shift_error'] = err
+        losses['shift_error/init'] = err_init
+
+        reproj_losses = self.reproj_loss(pred, data)
+        losses['reprojection_error'] = reproj_losses['reprojection_error']
+        losses['total'] += reproj_losses['reprojection_error']
+
+        return losses
 
     def rtreproj_loss(self, pred, data):
         cam_ref = data['ref']['camera']
@@ -284,7 +322,7 @@ class TwoViewRefiner2D3D(BaseModel):
         # success = None
         losses = {'total': 0.}
 
-        for i, shift in enumerate(pred['shift1']):
+        for i, shift in enumerate(pred['shiftxyr1']):
             err = shift_error(shift)
             loss = err / num_scales
             # if i > 0:
@@ -303,7 +341,6 @@ class TwoViewRefiner2D3D(BaseModel):
 
         return losses
 
-
     def rt_loss(self, pred, data):
         # TODO:
         cam_ref = data['ref']['camera']
@@ -317,7 +354,7 @@ class TwoViewRefiner2D3D(BaseModel):
         def shift_error(shift):
             err = torch.sum(coe * (shift - shift_gt) ** 2, dim=-1)
             # err = scaled_barron(1., 2.)(err)[0] / 4
-            err = err.mean(dim=0, keepdim=True)
+            # err = err.mean(dim=0, keepdim=True)
             return err
 
         err_init = shift_error(shift_init)
@@ -390,6 +427,9 @@ class TwoViewRefiner2D3D(BaseModel):
         losses['reprojection_error/init'] = err_init
 
         return losses
+
+    def reprojrt_loss(self, pred, data):
+        pass
 
     def metrics(self, pred, data):
         T_r2q_gt = data['T_q2r_gt'].inv()

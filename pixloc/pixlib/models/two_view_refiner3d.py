@@ -201,7 +201,7 @@ class TwoViewRefiner3D(BaseModel):
         def shift_error(shift):
             err = torch.sum(coe * (shift - shift_gt) ** 2, dim=-1)
             # err = scaled_barron(1., 2.)(err)[0] / 4
-            err = err.mean(dim=0, keepdim=True)
+            # err = err.mean(dim=0, keepdim=True)
             return err
 
         err_init = shift_error(shift_init)

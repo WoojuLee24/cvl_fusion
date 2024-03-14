@@ -20,42 +20,6 @@ from pixloc.visualization.viz_2d import (
     plot_images, plot_keypoints, plot_matches, cm_RdGn,
     features_to_RGB, add_text, save_plot, plot_valid_points, get_warp_sat2real)
 
-data_conf = {
-    'max_num_points3D': 1024,  # 5000, #both:3976,3D:5000
-    'force_num_points3D': True,
-    'train_batch_size': 1,
-    'test_batch_size': 2,
-    'num_workers': 0,
-    'satmap_zoom': 18,
-    "sampling":  'random',
-}
-
-
-if Ford_dataset:
-    from pixloc.pixlib.datasets.ford import FordAV
-    dataset = FordAV(data_conf)
-else:
-    from pixloc.pixlib.datasets.kitti import Kitti
-    dataset = Kitti(data_conf)
-
-torch.set_grad_enabled(False);
-mpl.rcParams['image.interpolation'] = 'bilinear'
-
-val_loader = dataset.get_data_loader('val', shuffle=True)  # or 'train' ‘val’
-test_loader = dataset.get_data_loader('test', shuffle=False) #shuffle=True)
-
-# Name of the example experiment. Replace with your own training experiment.
-device = 'cuda'
-conf = {
-    'normalize_dt': False,
-    'optimizer': {'num_iters': 5,},
-}
-# refiner = load_experiment(exp, conf, get_last=True).to(device)
-refiner = load_experiment(exp, conf,
-                          ckpt='/ws/external/outputs/training/nn_lidar1212_refiner3d_res_i1_sibcl.set/checkpoint_best.tar'  #'/ws/external/outputs/training/LM_LiDAR1011_e10_i1_b2/checkpoint_best.tar' #
-                          ).to(device)
-print(OmegaConf.to_yaml(refiner.conf))
-
 class Logger:
     def __init__(self, optimizers=None):
         self.costs = []
@@ -107,10 +71,6 @@ class Logger:
     def set(self, data):
         self.data = data
 
-
-logger = Logger(refiner.optimizer)
-# trainning
-set_seed(20)
 
 def min_max_norm(confidence):
     max= torch.max(confidence)
@@ -247,13 +207,15 @@ def Val(refiner, val_loader, save_path, best_result):
                 C_r, C_q = pred['ref']['confidences'][i][0], pred['query']['confidences'][i][0]
                 C_r = min_max_norm(C_r)
                 C_q = min_max_norm(C_q)
-                plot_images([C_r], cmaps=mpl.cm.gnuplot2, dpi=50)
+                # plot_images([C_r], cmaps=mpl.cm.gnuplot2, dpi=50)
+                plot_images([C_r], dpi=50)
                 axes = plt.gcf().axes
                 axes[0].imshow(imr, alpha=0.2, extent=axes[0].images[0]._extent)
                 if SavePlt:
                     save_plot(save_path + f'/c_s_0_{i}.png')
                 plt.show()
-                plot_images([C_q], cmaps=mpl.cm.gnuplot2, dpi=50)
+                # plot_images([C_q], cmaps=mpl.cm.gnuplot2, dpi=50)
+                plot_images([C_q], dpi=50)
                 axes = plt.gcf().axes
                 axes[0].imshow(imq, alpha=0.2, extent=axes[0].images[0]._extent)
                 if SavePlt:
@@ -357,9 +319,50 @@ if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    save_path = '/ws/external/visualization/3d_1222'
+    data_conf = {
+        'max_num_points3D': 1024,  # 5000, #both:3976,3D:5000
+        'force_num_points3D': False,
+        'train_batch_size': 1,
+        'test_batch_size': 2,
+        'num_workers': 0,
+        'satmap_zoom': 18,
+        "sampling": 'random',
+    }
+
+    if Ford_dataset:
+        from pixloc.pixlib.datasets.ford import FordAV
+
+        dataset = FordAV(data_conf)
+    else:
+        from pixloc.pixlib.datasets.kitti import Kitti
+
+        dataset = Kitti(data_conf)
+
+    torch.set_grad_enabled(False);
+    mpl.rcParams['image.interpolation'] = 'bilinear'
+
+    val_loader = dataset.get_data_loader('val', shuffle=True)  # or 'train' ‘val’
+    test_loader = dataset.get_data_loader('test', shuffle=False)  # shuffle=True)
+
+    # Name of the example experiment. Replace with your own training experiment.
+    device = 'cuda'
+    conf = {
+        'normalize_dt': False,
+        'optimizer': {'num_iters': 1, },
+    }
+    # refiner = load_experiment(exp, conf, get_last=True).to(device)
+    refiner = load_experiment(exp, conf,
+                              ckpt='/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
+                              ).to(device)
+    save_path = '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
+
+    print(OmegaConf.to_yaml(refiner.conf))
+
+    logger = Logger(refiner.optimizer)
+    # trainning
+    set_seed(20)
 
     if 0: # test
         test(refiner, test_loader) #val_loader

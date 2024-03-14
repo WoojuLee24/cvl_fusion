@@ -177,6 +177,39 @@ def features_to_RGB(*Fs, skip=1):
     return Fs
 
 
+def features_to_GRAY(*Fs, skip=1):
+    """Project a list of d-dimensional feature maps to RGB colors using PCA."""
+    from sklearn.decomposition import PCA
+
+    def normalize(x):
+        return x / np.linalg.norm(x, axis=-1, keepdims=True)
+    flatten = []
+    shapes = []
+    for F in Fs:
+        c, h, w = F.shape
+        F = np.rollaxis(F, 0, 3)
+        F = F.reshape(-1, c)
+        flatten.append(F)
+        shapes.append((h, w))
+    flatten = np.concatenate(flatten, axis=0)
+
+    pca = PCA(n_components=3)
+    if skip > 1:
+        pca.fit(normalize(flatten[::skip]))
+        flatten = normalize(pca.transform(normalize(flatten)))
+    else:
+        flatten = normalize(pca.fit_transform(normalize(flatten)))
+    flatten = (flatten + 1) / 2
+
+    Fs = []
+    for h, w in shapes:
+        F, flatten = np.split(flatten, [h*w], axis=0)
+        F = F.reshape((h, w, 3))
+        Fs.append(F)
+    assert flatten.shape[0] == 0
+    return Fs
+
+
 def imsave(image, folder, name):
     # save image with PIL, plt package
     root = f"/ws/external/visualization/{folder}"
