@@ -223,8 +223,10 @@ class Pose(TensorWrapper):
             dr: rotation anngle in degrees.
             dt: translation distance in meters.
         '''
+        eps=1e-6
         trace = torch.diagonal(self.R, dim1=-1, dim2=-2).sum(-1)
-        cos = torch.clamp((trace - 1) / 2, -1, 1)
+        # cos = torch.clamp((trace - 1) / 2, -1, 1)
+        cos = torch.clamp((trace - 1) / 2, -1+eps, 1-eps)
         dr = torch.acos(cos).abs() / math.pi * 180
         dt = torch.norm(self.t, dim=-1)
         return dr, dt

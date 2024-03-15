@@ -501,7 +501,6 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
 
         for it, data in enumerate(train_loader):
             tot_it = len(train_loader)*epoch + it
-
             model.train()
             optimizer.zero_grad()
             data = batch_to_device(data, device, non_blocking=True)
