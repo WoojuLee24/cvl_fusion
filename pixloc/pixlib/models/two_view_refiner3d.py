@@ -183,10 +183,67 @@ class TwoViewRefiner3D(BaseModel):
     def loss(self, pred, data):
         if self.conf.optimizer.main_loss == 'rt':
             losses = self.rt_loss(pred, data)
+        elif self.conf.optimizer.main_loss == 'tf':
+            losses = self.tf_loss(pred, data)
         else:
             losses = self.reproj_loss(pred, data)  # default = reproj
 
         return losses
+
+
+    def tf_loss(self, pred, data):
+        # cam_ref = data['ref']['camera']
+        # points_3d = data['query']['points3D']
+
+        # def project(T_q2r):
+        #     return cam_ref.world2image(T_q2r * points_3d)
+
+        # p2D_r_gt, mask = project(data['T_q2r_gt'])
+        # p2D_r_i, mask_i = project(data['T_q2r_init'])
+        # mask = (mask & mask_i).float()
+
+        T_q2r_gt = data['T_q2r_gt']
+        T_q2r_init = data['T_q2r_init']
+
+        def tf_error(T_q2r):
+            err_R = torch.sum(torch.sum(torch.abs(T_q2r_gt.R - T_q2r.R), dim=-1), dim=-1)
+            err_T = torch.sum(torch.abs(T_q2r_gt.t - T_q2r.t), dim=-1)
+            err = self.conf.optimizer.coe_rot * err_R + self.conf.optimizer.coe_lat * err_T
+
+            return err
+
+        err_init = tf_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] = 0
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = tf_error(T_opt)
+            loss = err / num_scales
+            # if i > 0:
+            #     loss = loss * success.float()
+            # thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
+            # success = err < thresh
+            losses[f'tf_error/{i}'] = err
+            losses['total'] += loss
+
+            # # query & reprojection GT error, for query unet back propogate
+            # if self.conf.optimizer.pose_loss:
+            #     losses['pose_loss'] += pred['pose_loss'][i] / num_scales
+            #     poss_loss_weight = get_weight_from_reproloss(err_init)
+            #     losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
+            #         max=self.conf.clamp_error / num_scales)
+
+        losses['tf_error'] = err
+        losses['tf_error/init'] = err_init
+
+        with torch.no_grad():
+            reproj_losses = self.reproj_loss(pred, data)
+            losses['reprojection_error'] = reproj_losses['reprojection_error']
+
+        return losses
+
 
     def rt_loss(self, pred, data):
         # TODO:
@@ -224,7 +281,7 @@ class TwoViewRefiner3D(BaseModel):
 
         with torch.no_grad():
             reproj_losses = self.reproj_loss(pred, data)
-        losses['reprojection_error'] = reproj_losses['reprojection_error']
+            losses['reprojection_error'] = reproj_losses['reprojection_error']
 
         return losses
 
