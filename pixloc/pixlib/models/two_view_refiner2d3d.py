@@ -452,7 +452,7 @@ class TwoViewRefiner2D3D(BaseModel):
         metrics = {'total': 0.}
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = scaled_pose_error(T_opt)
-            loss = (err[0] + err[1]).mean()
+            loss = (err[0] + err[1]).mean(dim=-1, keepdim=True)
             metrics['total'] += loss / num_scales
 
             metrics[f'R_error/{i}'], metrics[f't_error/{i}'], metrics[f'lat_error/{i}'], metrics[
