@@ -8,6 +8,9 @@ from ..geometry import Camera, Pose
 from ..geometry.optimization import optimizer_step
 from ..geometry import losses  # noqa
 
+from .pointnet import PointNetEncoder
+from .pointnet2 import PointNetEncoder2
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,7 +50,7 @@ class NNOptimizer3D(BaseOptimizer):
         rot_range=1.,
         range=False, # 'none',   # 'r', 't', 'rt'
         cascade=False,
-        linearp=False,
+        linearp='none', # 'none', 'basic', 'pointnet', 'pointnet2', 'pointnet2_msg'
         attention=False,
         mask=False,
         input_dim=[128, 128, 32],  # [32, 128, 128],
@@ -228,15 +231,32 @@ class NNrefinev0_1(nn.Module):
         self.cout = 128
         pointc = 128
 
-        if self.args.linearp:
+        if self.args.linearp != 'none':
             self.cin = [c+pointc for c in self.cin]
-            self.linearp = nn.Sequential(nn.Linear(3, 16),
-                                         # nn.BatchNorm1d(16),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(16, pointc),
-                                         # nn.BatchNorm1d(pointc),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(pointc, pointc))
+            if self.args.linearp == 'basic':
+                self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(16, pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc))
+            elif self.args.linearp == 'pointnet':
+                self.linearp = nn.Sequential(PointNetEncoder(), # (B, N, 1088)
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(1088, pointc)
+                                             )
+            elif self.args.linearp in ['pointnet2', 'pointnet2_msg']:
+                if self.args.linearp == 'pointnet2':
+                    linearp_property = [0.2, 32, [64,64,128]] # radius, nsample, mlp
+                    output_dim = linearp_property[2][-1]
+                elif self.args.linearp == 'pointnet2_msg':
+                    linearp_property = [[0.1, 0.2, 0.4], [16, 32, 128], [[32, 32, 64], [64, 64, 128], [64, 96, 128]]] # radius_list, nsample_list, mlp_list
+                    output_dim = torch.sum(torch.tensor(linearp_property[2], requires_grad=False), dim=0)[-1]
+                self.linearp = nn.Sequential(PointNetEncoder2(self.args.max_num_points3D, linearp_property[0], linearp_property[1], linearp_property[2], self.args.linearp), # (B, N, output_dim)
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(output_dim, pointc)
+                                             )
         else:
             self.cin = [c+3 for c in self.cin]
 
@@ -307,7 +327,7 @@ class NNrefinev0_1(nn.Module):
         else:
             pass
 
-        if self.args.linearp:
+        if self.args.linearp != 'none':
             p3D_query = p3D_query.contiguous()
             p3D_query_feat = self.linearp(p3D_query)
             p3D_ref = p3D_ref.contiguous()
