@@ -182,6 +182,12 @@ class NNOptimizer2D3D(BaseOptimizer):
             for i in range(self.conf.num_iters):
                 F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
 
+                # save_path = '/ws/external/visualizations/features'
+                # from pixloc.visualization.viz_2d import imsave
+                # imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
+                # imsave(F_ref[0].mean(dim=0, keepdim=True), save_path, f'fsat_{scale}')
+                # imsave(F_query[0].mean(dim=0, keepdim=True), save_path, f'fgrd_{scale}')
+
                 # # solve the nn optimizer
                 delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
 

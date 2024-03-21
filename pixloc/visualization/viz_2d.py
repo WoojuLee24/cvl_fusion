@@ -210,9 +210,9 @@ def features_to_GRAY(*Fs, skip=1):
     return Fs
 
 
-def imsave(image, folder, name):
+def imsave(image, root, name):
     # save image with PIL, plt package
-    root = f"/ws/external/visualization/{folder}"
+    # root = f"/ws/external/visualization/{folder}"
     os.makedirs(root, exist_ok=True)
 
     if isinstance(image, Image.Image):

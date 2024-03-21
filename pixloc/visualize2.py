@@ -13,45 +13,14 @@ visual_path = 'visual_kitti'
 Ford_dataset = False
 exp = 'kitti'
 
+import collections
 from pixloc.pixlib.utils.tensor import batch_to_device, map_tensor
 from pixloc.pixlib.utils.tools import set_seed
 from pixloc.pixlib.utils.experiments import load_experiment
 from pixloc.visualization.viz_2d import (
     plot_images, plot_keypoints, plot_matches, cm_RdGn,
-    features_to_RGB, add_text, save_plot, plot_valid_points, get_warp_sat2real,
+    features_to_RGB, add_text, save_plot, plot_valid_points, # get_warp_sat2real,
     plot_valid_points2, imsave)
-
-data_conf = {
-    'max_num_points3D': 77777,  # 5000, #both:3976,3D:5000
-    'force_num_points3D': False,
-    'train_batch_size': 1,
-    'test_batch_size': 4,
-    'num_workers': 0,
-}
-
-
-if Ford_dataset:
-    from pixloc.pixlib.datasets.ford import FordAV
-    dataset = FordAV(data_conf)
-else:
-    from pixloc.pixlib.datasets.kitti import Kitti
-    dataset = Kitti(data_conf)
-
-torch.set_grad_enabled(False);
-mpl.rcParams['image.interpolation'] = 'bilinear'
-
-val_loader = dataset.get_data_loader('val', shuffle=True)  # or 'train' ‘val’
-test_loader = dataset.get_data_loader('test', shuffle=False) #shuffle=True)
-
-# Name of the example experiment. Replace with your own training experiment.
-device = 'cuda'
-conf = {
-    'normalize_dt': False,
-    'optimizer': {'num_iters': 5,},
-}
-# refiner = load_experiment(exp, conf, get_last=True).to(device)
-refiner = load_experiment(exp, conf, ckpt='/ws/external/outputs/training/LM_LiDAR1011_e10_i1_b2/checkpoint_best.tar').to(device)
-print(OmegaConf.to_yaml(refiner.conf))
 
 class Logger:
     def __init__(self, optimizers=None):
@@ -62,9 +31,16 @@ class Logger:
         self.yaw_trajectory = []
         self.pre_q2r = None
 
+        # if optimizers is not None:
+        #     for opt in optimizers:
+        #         opt.logging_fn = self.log
+
         if optimizers is not None:
-            for opt in optimizers:
-                opt.logging_fn = self.log
+            if isinstance(optimizers, collections.Iterable):
+                for opt in optimizers:
+                    opt.logging_fn = self.log
+            else:
+                optimizers.logging_fn = self.log
 
     def log(self, **args):
         if args['i'] == 0:
@@ -80,7 +56,7 @@ class Logger:
             self.camera_gt_yaw = camera_2D[0].cpu().numpy()
             camera_yaw, valid = self.data['ref']['camera'].world2image(self.data['T_q2r_init'] * camera_3D)
             self.yaw_trajectory.append((camera_yaw[0].cpu().numpy(), valid[0].cpu().numpy()))
-        self.costs[-1].append(args['cost'].mean(-1).cpu().numpy())
+        # self.costs[-1].append(args['cost'].mean(-1).cpu().numpy())
         self.dt.append(args['T_delta'].magnitude()[1].cpu().numpy())
         self.t.append(args['T'].cpu())
 
@@ -101,10 +77,6 @@ class Logger:
     def set(self, data):
         self.data = data
 
-
-logger = Logger(refiner.optimizer)
-# trainning
-set_seed(20)
 
 def min_max_norm(confidence):
     max= torch.max(confidence)
@@ -132,19 +104,19 @@ def Val(refiner, val_loader, save_path, best_result):
         p2D_r_init, _ = cam_r.world2image(data['T_q2r_init'] * p3D_q)
         p2D_r_opt, _ = cam_r.world2image(pred['T_q2r_opt'][-1] * p3D_q)
 
-        # 2d
-        p2D_q, visible = cam_q.world2image(data['query']['T_w2cam'] * p3D_q)
-        from pixloc.pixlib.geometry.interpolation import interpolate_tensor_bilinear
-        F_q, _ = interpolate_tensor_bilinear(data['query']['image'], p2D_q)
-
-        p3D_ref, visible = cam_r.world2image3d_(data['T_q2r_gt'] * p3D_q)
-        F_q2r = cam_r.voxelize_(p3D_ref.unsqueeze(0), F_q.unsqueeze(0), size=(1, 3, 20, 1280, 1280), level=0)
-        from pixloc.visualization.viz_2d import imsave
-        imsave(F_q2r[0], save_path, 'validgt_g2s_points2d')
-        # import matplotlib
-        # plot_images([F_q2r[0].permute(1, 2, 0)], cmaps=matplotlib.cm.gnuplot2, titles=['2d'])
-        # if SavePlt:
-        #     save_plot(save_path + f'/lidargt_g2s_points2d.png')
+        # # 2d
+        # p2D_q, visible = cam_q.world2image(data['query']['T_w2cam'] * p3D_q)
+        # from pixloc.pixlib.geometry.interpolation import interpolate_tensor_bilinear
+        # F_q, _ = interpolate_tensor_bilinear(data['query']['image'], p2D_q)
+        #
+        # p3D_ref, visible = cam_r.world2image3d_(data['T_q2r_gt'] * p3D_q)
+        # F_q2r = cam_r.voxelize_(p3D_ref.unsqueeze(0), F_q.unsqueeze(0), size=(1, 3, 20, 1280, 1280), level=0)
+        # from pixloc.visualization.viz_2d import imsave
+        # imsave(F_q2r[0], save_path, 'validgt_g2s_points2d')
+        # # import matplotlib
+        # # plot_images([F_q2r[0].permute(1, 2, 0)], cmaps=matplotlib.cm.gnuplot2, titles=['2d'])
+        # # if SavePlt:
+        # #     save_plot(save_path + f'/lidargt_g2s_points2d.png')
 
         valid = valid_q & valid_r
 
@@ -183,10 +155,10 @@ def Val(refiner, val_loader, save_path, best_result):
             imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
 
             # g2s with GH and T
-            imr1 = imr.permute(2, 0, 1)
-            imq1 = imq.permute(2, 0, 1)
-            c, a, a = imr1.size()
-            c, h, w = imq1.size()
+            imr1 = imr.permute(2, 0, 1).unsqueeze(dim=0).to(device)
+            imq1 = imq.permute(2, 0, 1).unsqueeze(dim=0).to(device)
+            b, c, a, a = imr1.size()
+            b, c, h, w = imq1.size()
             uv1 = get_warp_sat2real(imr1)
             uv1 = data['T_q2r_gt'].cuda().inv() * uv1
             # uv, mask = cam_query.world2image(uv1)
@@ -196,20 +168,24 @@ def Val(refiner, val_loader, save_path, best_result):
             uv = (uv / scale) * 2 - 1
             uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
             g2s = torch.nn.functional.grid_sample(
-                imq1.cuda().unsqueeze(dim=0), uv.unsqueeze(dim=0), mode='bilinear', align_corners=True)
+                imq1.cuda(), uv.unsqueeze(dim=0), mode='bilinear', align_corners=True)
 
-            validgt_sat_points = plot_valid_points2(imr, imr, p2D_r_gt[valid], p2D_r_gt[valid])
-            imsave(validgt_sat_points.permute((2, 0, 1)), save_path, 'validgt_sat_points')
-            validgt_g2s_points = plot_valid_points2(imr, imq, p2D_r_gt[valid], p2D_q[valid])
-            imsave(validgt_g2s_points.permute((2, 0, 1)), save_path, 'validgt_g2s_points')
-            validgt_lidar_points = plot_valid_points2(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_r_gt[valid])
-            imsave(validgt_lidar_points.permute((2, 0, 1)), save_path, 'validgt_lidar_points')
-
-            validinit_g2s_points = plot_valid_points2(imr, imq, p2D_r_init[valid], p2D_q[valid])
-            imsave(validinit_g2s_points.permute((2, 0, 1)), save_path, 'validinit_g2s_points')
+            # validgt_sat_points = plot_valid_points2(imr, imr, p2D_r_gt[valid], p2D_r_gt[valid])
+            # imsave(validgt_sat_points.permute((2, 0, 1)), save_path, 'validgt_sat_points')
+            # validgt_g2s_points = plot_valid_points2(imr, imq, p2D_r_gt[valid], p2D_q[valid])
+            # imsave(validgt_g2s_points.permute((2, 0, 1)), save_path, 'validgt_g2s_points')
+            # validgt_lidar_points = plot_valid_points2(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_r_gt[valid])
+            # imsave(validgt_lidar_points.permute((2, 0, 1)), save_path, 'validgt_lidar_points')
+            #
+            # validinit_g2s_points = plot_valid_points2(imr, imq, p2D_r_init[valid], p2D_q[valid])
+            # imsave(validinit_g2s_points.permute((2, 0, 1)), save_path, 'validinit_g2s_points')
 
             imsave(imr.permute((2, 0, 1)), save_path, 'sat')
             imsave(imq.permute((2, 0, 1)), save_path, 'grd')
+            imsave(g2s[0], save_path, 'g2s')
+
+            # g2s_2 = project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].to(device), imq1, imr1)
+            # imsave(g2s_2[0], save_path, 'g2s_2')
 
             # plot_images([g2s[0].permute(1, 2, 0).cpu()], dpi=100)
             # if SavePlt:
@@ -327,6 +303,62 @@ def Val(refiner, val_loader, save_path, best_result):
         torch.save(refiner.state_dict(), save_path + 'Model_best.pth')
     return acc
 
+def project_grd_to_map(T, cam_q, F_query, F_ref):
+    # g2s with GH and T
+    b, c, a, a = F_ref.size()
+    b, c, h, w = F_query.size()
+    uv1 = get_warp_sat2real(F_ref)
+
+    # uv, mask = cam_query.world2image(uv1)
+    uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+    uv1 = T.cuda().inv() * uv1
+
+    uv, mask = cam_q.world2image(uv1)
+    uv = uv.reshape(b, a, a, 2).contiguous()
+
+    scale = torch.tensor([w - 1, h - 1]).to(uv)
+    uv = (uv / scale) * 2 - 1
+    uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+    F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+
+    return F_g2s
+
+
+def get_warp_sat2real(F_ref):
+    # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
+    # realword: X: south, Y:down, Z: east   origin is set to the ground plane
+
+    B, C, _, satmap_sidelength = F_ref.size()
+
+    # meshgrid the sat pannel
+    i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
+    ii, jj = torch.meshgrid(i, j)  # i:h,j:w
+
+    # uv is coordinate from top/left, v: south, u:east
+    uv = torch.stack([jj, ii], dim=-1).float()  # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+    # sat map from top/left to center coordinate
+    u0 = v0 = satmap_sidelength // 2
+    uv_center = uv - torch.tensor(
+        [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+    # inv equation (1)
+    meter_per_pixel = 0.07463721  # 0.298548836 / 5 # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512)
+    meter_per_pixel *= 1280 / satmap_sidelength
+    # R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
+    # Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
+
+    XY = uv_center * meter_per_pixel
+    Z = torch.zeros_like(XY[..., 0:1])
+    ones = torch.ones_like(Z)
+    # sat2realwap = torch.cat([XY[:, :, :1], Z, XY[:, :, 1:], ones], dim=-1)  # [sidelength,sidelength,4]
+    XYZ = torch.cat([XY[:, :, :1], XY[:, :, 1:], Z], dim=-1)  # [sidelength,sidelength,4]
+    # XYZ = XYZ.unsqueeze(dim=0)
+    # XYZ = XYZ.reshape(B, -1, 3)
+
+    return XYZ
+
+
 def test(refiner, test_loader):
     refiner.eval()
     errR = torch.tensor([])
@@ -367,9 +399,51 @@ if __name__ == '__main__':
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-    save_path = '2d_1211'
+    data_conf = {
+        'max_num_points3D': 1024,  # 5000, #both:3976,3D:5000
+        'force_num_points3D': False,
+        'train_batch_size': 1,
+        'test_batch_size': 2,
+        'num_workers': 0,
+        'satmap_zoom': 18,
+        "sampling": 'random',
+    }
+
+
+    if Ford_dataset:
+        from pixloc.pixlib.datasets.ford import FordAV
+
+        dataset = FordAV(data_conf)
+    else:
+        from pixloc.pixlib.datasets.kitti import Kitti
+
+        dataset = Kitti(data_conf)
+
+    torch.set_grad_enabled(False);
+    mpl.rcParams['image.interpolation'] = 'bilinear'
+
+    val_loader = dataset.get_data_loader('val', shuffle=True)  # or 'train' ‘val’
+    test_loader = dataset.get_data_loader('test', shuffle=False)  # shuffle=True)
+
+    # Name of the example experiment. Replace with your own training experiment.
+    device = 'cuda'
+    conf = {
+        'normalize_dt': False,
+        'optimizer': {'num_iters': 5, },
+    }
+    # refiner = load_experiment(exp, conf, get_last=True).to(device)
+    refiner = load_experiment(exp, conf,
+                              ckpt='/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
+                              ).to(device)
+    save_path = '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
+
+    print(OmegaConf.to_yaml(refiner.conf))
+
+    logger = Logger(refiner.optimizer)
+    # trainning
+    set_seed(20)
 
     if 0: # test
         test(refiner, test_loader) #val_loader

@@ -143,6 +143,34 @@ class TwoViewRefiner2D3D(BaseModel):
                 F_q = (F_q - F_q.mean(dim=1, keepdim=True)) / (F_q.std(dim=1, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
+
+            # save_path = '/ws/external/visualizations/features'
+            # from pixloc.visualization.viz_2d import imsave
+            # from pixloc.pixlib.geometry import Camera, Pose
+            # R_yaw = torch.tensor([[np.cos(0), -np.sin(0), 0], [np.sin(0), np.cos(0), 0], [0, 0, 1]], dtype=torch.float32).cuda()
+            # T = torch.tensor([30., 0., 0], dtype=torch.float32).cuda()
+            # shift = Pose.from_Rt(R_yaw, T)
+            # data['T_q2r_shift'] = shift @ data['T_q2r_gt']
+            #
+            # image_g2s = self.project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
+            #                                     data['query']['image'], data['ref']['image'])
+            # image_g2s_init = self.project_grd_to_map(data['T_q2r_init'], data['query']['camera'].cuda(),
+            #                                          data['query']['image'], data['ref']['image'])
+            # image_g2s_shift = self.project_grd_to_map(data['T_q2r_shift'], data['query']['camera'].cuda(),
+            #                                           data['query']['image'], data['ref']['image'])
+            #
+            # imsave(image_g2s[0], save_path, f'0g2s_gt')
+            # imsave(image_g2s_init[0], save_path, f'0g2s_gt_init')
+            # imsave(image_g2s_shift[0], save_path, f'0g2s_gt_shift')
+            # imsave(data['ref']['image'][0], save_path, f'0sat')
+            # imsave(data['query']['image'][0], save_path, f'0grd')
+            #
+            # imsave(image_g2s[1], save_path, f'1g2s_gt')
+            # imsave(image_g2s_init[1], save_path, f'1g2s_gt_iniy')
+            # imsave(image_g2s_shift[1], save_path, f'1g2s_gt_shift')
+            # imsave(data['ref']['image'][1], save_path, f'1sat')
+            # imsave(data['query']['image'][1], save_path, f'1grd')
+
             ### Fusion ###
             T_opt, failed, shiftxyr, shiftxyr1 = opt(dict(
                 p3D=p3D_query, F_ref=F_ref, F_q=F_q, F_q_key=F_q_key, T_init=T_init, cam_ref=cam_ref, cam_q=cam_q,
@@ -166,6 +194,63 @@ class TwoViewRefiner2D3D(BaseModel):
                 pred['pose_loss'].append(diff_loss)
 
         return pred
+
+
+    def project_grd_to_map(self, T, cam_q, F_query, F_ref):
+        # g2s with GH and T
+        b, c, a, a = F_ref.size()
+        b, c, h, w = F_query.size()
+        uv1 = self.get_warp_sat2real(F_ref)
+
+        # uv, mask = cam_query.world2image(uv1)
+        uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+        uv1 = T.cuda().inv() * uv1
+
+        uv, mask = cam_q.world2image(uv1)
+        uv = uv.reshape(b, a, a, 2).contiguous()
+
+        # scale = torch.tensor([w - 1, h - 1]).to(uv)
+        scale = torch.tensor([w - 1, h - 1]).to(uv)
+        uv = (uv / scale) * 2 - 1
+        uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+        F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+
+        return F_g2s
+
+    def get_warp_sat2real(self, F_ref):
+        # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
+        # realword: X: south, Y:down, Z: east   origin is set to the ground plane
+
+        B, C, _, satmap_sidelength = F_ref.size()
+
+        # meshgrid the sat pannel
+        i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
+        ii, jj = torch.meshgrid(i, j)  # i:h,j:w
+
+        # uv is coordinate from top/left, v: south, u:east
+        uv = torch.stack([jj, ii], dim=-1).float()  # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+        # sat map from top/left to center coordinate
+        u0 = v0 = satmap_sidelength // 2
+        uv_center = uv - torch.tensor(
+            [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+        # inv equation (1)
+        meter_per_pixel = 0.078302836441486744 # 0.19575709110371686 (code) # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512)
+        meter_per_pixel *= 1280 / satmap_sidelength
+        # R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
+        # Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
+
+        XY = uv_center * meter_per_pixel
+        Z = torch.zeros_like(XY[..., 0:1])
+        ones = torch.ones_like(Z)
+        # sat2realwap = torch.cat([XY[:, :, :1], Z, XY[:, :, 1:], ones], dim=-1)  # [sidelength,sidelength,4]
+        XYZ = torch.cat([XY[:, :, :1], XY[:, :, 1:], Z], dim=-1)  # [sidelength,sidelength,4]
+        # XYZ = XYZ.unsqueeze(dim=0)
+        # XYZ = XYZ.reshape(B, -1, 3)
+
+        return XYZ
+
 
     def preject_l1loss(self, opt, p3D, F_ref, F_query, T_gt, camera, mask=None, W_ref_query= None):
         args = (camera, p3D, F_ref, F_query, W_ref_query)
