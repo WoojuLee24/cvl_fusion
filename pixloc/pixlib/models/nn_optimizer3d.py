@@ -50,7 +50,7 @@ class NNOptimizer3D(BaseOptimizer):
         rot_range=1.,
         range=False, # 'none',   # 'r', 't', 'rt'
         cascade=False,
-        linearp='none', # 'none', 'basic', 'pointnet', 'pointnet2', 'pointnet2_msg'
+        linearp='basic', # 'none', 'basic', 'pointnet', 'pointnet2', 'pointnet2_msg'
         attention=False,
         mask=False,
         input_dim=[128, 128, 32],  # [32, 128, 128],
@@ -233,7 +233,7 @@ class NNrefinev0_1(nn.Module):
 
         if self.args.linearp != 'none':
             self.cin = [c+pointc for c in self.cin]
-            if self.args.linearp == 'basic':
+            if self.args.linearp == 'basic' or self.args.linearp == True:
                 self.linearp = nn.Sequential(nn.Linear(3, 16),
                                              # nn.BatchNorm1d(16),
                                              nn.ReLU(inplace=False),
