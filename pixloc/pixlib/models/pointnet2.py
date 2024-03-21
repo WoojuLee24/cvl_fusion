@@ -287,6 +287,35 @@ class PointNetEncoder2(nn.Module):
 
         return l1_points.transpose(2, 1)
 
+
+class PointNetEncoder2_1(nn.Module):
+    def __init__(self, n_point, radius, nsample, mlp, mode, normal_channel=False):
+        super(PointNetEncoder2_1, self).__init__()
+
+        self.normal_channel = normal_channel
+        if mode == 'pointnet2.1':
+            in_channel = 6 if normal_channel else 3
+            self.sa1 = PointNetSetAbstraction(npoint=n_point, radius=radius, nsample=nsample, in_channel=in_channel,
+                                              mlp=mlp, group_all=False)
+        elif mode == 'pointnet2.1_msg':
+            in_channel = 3 if normal_channel else 0
+            self.sa1 = PointNetSetAbstractionMsg(npoint=n_point, radius_list=radius,
+                                                 nsample_list=nsample, in_channel=in_channel,
+                                                 mlp_list=mlp)
+
+    def forward(self, xyz):
+        xyz = xyz.transpose(2, 1)
+        B, _, _ = xyz.shape
+        if self.normal_channel:
+            norm = xyz[:, 3:, :]
+            xyz = xyz[:, :3, :]
+        else:
+            norm = None
+        l1_xyz, l1_points = self.sa1(xyz, norm)
+
+        return l1_points.transpose(2, 1)
+
+
 class PointNetFeaturePropagation(nn.Module):
     def __init__(self, in_channel, mlp):
         super(PointNetFeaturePropagation, self).__init__()

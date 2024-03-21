@@ -144,32 +144,37 @@ class TwoViewRefiner2D3D(BaseModel):
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
 
-            # save_path = '/ws/external/visualizations/features'
-            # from pixloc.visualization.viz_2d import imsave
-            # from pixloc.pixlib.geometry import Camera, Pose
-            # R_yaw = torch.tensor([[np.cos(0), -np.sin(0), 0], [np.sin(0), np.cos(0), 0], [0, 0, 1]], dtype=torch.float32).cuda()
-            # T = torch.tensor([30., 0., 0], dtype=torch.float32).cuda()
-            # shift = Pose.from_Rt(R_yaw, T)
-            # data['T_q2r_shift'] = shift @ data['T_q2r_gt']
-            #
-            # image_g2s = self.project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
+            #save_path = '/ws/external/visualizations/features'
+            #from pixloc.visualization.viz_2d import imsave
+            #from pixloc.pixlib.geometry import Camera, Pose
+            #R_yaw = torch.tensor([[np.cos(0), -np.sin(0), 0], [np.sin(0), np.cos(0), 0], [0, 0, 1]], dtype=torch.float32).cuda()
+            #T = torch.tensor([30., 0., 0], dtype=torch.float32).cuda()
+            #shift = Pose.from_Rt(R_yaw, T)
+            #data['T_q2r_shift'] = shift @ data['T_q2r_gt']
+
+            #image_g2s = self.project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
             #                                     data['query']['image'], data['ref']['image'])
-            # image_g2s_init = self.project_grd_to_map(data['T_q2r_init'], data['query']['camera'].cuda(),
+            #image_g2s_init = self.project_grd_to_map(data['T_q2r_init'], data['query']['camera'].cuda(),
             #                                          data['query']['image'], data['ref']['image'])
-            # image_g2s_shift = self.project_grd_to_map(data['T_q2r_shift'], data['query']['camera'].cuda(),
+            #image_g2s_shift = self.project_grd_to_map(data['T_q2r_shift'], data['query']['camera'].cuda(),
             #                                           data['query']['image'], data['ref']['image'])
-            #
-            # imsave(image_g2s[0], save_path, f'0g2s_gt')
-            # imsave(image_g2s_init[0], save_path, f'0g2s_gt_init')
-            # imsave(image_g2s_shift[0], save_path, f'0g2s_gt_shift')
-            # imsave(data['ref']['image'][0], save_path, f'0sat')
-            # imsave(data['query']['image'][0], save_path, f'0grd')
-            #
-            # imsave(image_g2s[1], save_path, f'1g2s_gt')
-            # imsave(image_g2s_init[1], save_path, f'1g2s_gt_iniy')
-            # imsave(image_g2s_shift[1], save_path, f'1g2s_gt_shift')
-            # imsave(data['ref']['image'][1], save_path, f'1sat')
-            # imsave(data['query']['image'][1], save_path, f'1grd')
+            #image_g2s_cvl =  self.project_grd_to_map2(data['T_q2r_gt'], data['query']['camera'].cuda(),
+            #                                     data['query']['image'], data['ref']['image'])
+
+
+            #imsave(image_g2s[0], save_path, f'0g2s_gt')
+            #imsave(image_g2s_init[0], save_path, f'0g2s_gt_init')
+            #imsave(image_g2s_cvl[0], save_path, f'0g2s_gt_cvl')
+
+            #imsave(data['ref']['image'][0], save_path, f'0sat')
+            #imsave(data['query']['image'][0], save_path, f'0grd')
+
+            #imsave(image_g2s[1], save_path, f'1g2s_gt')
+            #imsave(image_g2s_init[1], save_path, f'1g2s_gt_iniy')
+            #imsave(image_g2s_cvl[1], save_path, f'1g2s_gt_cvl')
+
+            #imsave(data['ref']['image'][1], save_path, f'1sat')
+            #imsave(data['query']['image'][1], save_path, f'1grd')
 
             ### Fusion ###
             T_opt, failed, shiftxyr, shiftxyr1 = opt(dict(
@@ -194,6 +199,64 @@ class TwoViewRefiner2D3D(BaseModel):
                 pred['pose_loss'].append(diff_loss)
 
         return pred
+
+    def project_grd_to_map2(self, T, cam_q, F_query, F_ref):
+        # g2s with GH and T
+        b, c, a, a = F_ref.size()
+        b, c, h, w = F_query.size()
+        uv1 = self.get_warp_sat2real(F_ref)
+        uv, mask = self.seq_warp_real2camera(T, cam_q, uv1)
+
+        # uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+        # uv1 = T.cuda().inv() * uv1
+        # uv, mask = cam_q.world2image(uv1)
+        # uv = uv.reshape(b, a, a, 2).contiguous()
+
+        scale = torch.tensor([w - 1, h - 1]).to(uv)
+        uv = (uv / scale) * 2 - 1
+        uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+        F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+
+        return F_g2s
+
+    def seq_warp_real2camera(self, T_q2r, cam_q, uv1):
+        # realword: X: south, Y:down, Z: east
+        # camera: u:south, v: down from center (when heading east, need to rotate heading angle)
+        # XYZ_1:[H,W,4], heading:[B,1], camera_k:[B,3,3], shift:[B,2]
+        XYZ_1 = torch.cat([uv1, torch.ones_like(uv1[..., 0:1])], dim=-1)
+        T_r2q = T_q2r.cuda().inv()
+        R = T_r2q.R  # shape = [B,3,3]
+        T = T_r2q.t.unsqueeze(dim=-1)
+
+        B = R.shape[0]
+
+        camera_height = 1.65
+        # camera offset, shift[0]:east,Z, shift[1]:north,X
+        # height = camera_height * torch.ones_like([B, 1])
+        # T = torch.cat([shift_v_meters, height, -shift_u_meters], dim=-1)  # shape = [B, 3]
+        # T = torch.unsqueeze(T, dim=-1)  # shape = [B,3,1]
+        # T = torch.einsum('bij, bjk -> bik', R, T0)
+        # T = R @ T0
+
+        # P = K[R|T]
+        zeros = torch.zeros_like(cam_q.f[:, 0:1])
+        ones = torch.ones_like(cam_q.f[:, 0:1])
+        camera_k = torch.cat([cam_q.f[:, 0:1], zeros, cam_q.c[:, 0:1],
+                              zeros, cam_q.f[:, 1:2], cam_q.c[:, 1:2],
+                              zeros, zeros, ones], dim=-1)
+        camera_k = camera_k.view(B, 3, 3)
+        # P = torch.einsum('bij, bjk -> bik', camera_k, torch.cat([R, T], dim=-1)).float()  # shape = [B,3,4]
+        P = camera_k @ torch.cat([R, T], dim=-1)
+
+        # uv1 = torch.einsum('bij, hwj -> bhwi', P, XYZ_1)  # shape = [B, H, W, 3]
+        uv1 = torch.sum(P[:, None, None, :, :] * XYZ_1[None, :, :, None, :], dim=-1)
+        # only need view in front of camera ,Epsilon = 1e-6
+        uv1_last = torch.maximum(uv1[:, :, :, 2:], torch.ones_like(uv1[:, :, :, 2:]) * 1e-6)
+        uv = uv1[:, :, :, :2] / uv1_last  # shape = [B, H, W, 2]
+
+        mask = torch.greater(uv1_last, torch.ones_like(uv1[:, :, :, 2:]) * 1e-6)
+        mask = torch.squeeze(mask, dim=-1)
+        return uv, mask
 
 
     def project_grd_to_map(self, T, cam_q, F_query, F_ref):

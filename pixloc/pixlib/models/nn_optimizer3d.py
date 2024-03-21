@@ -8,8 +8,8 @@ from ..geometry import Camera, Pose
 from ..geometry.optimization import optimizer_step
 from ..geometry import losses  # noqa
 
-from .pointnet import PointNetEncoder
-from .pointnet2 import PointNetEncoder2
+from .pointnet import PointNetEncoder, PointNetEncoder1_1
+from .pointnet2 import PointNetEncoder2, PointNetEncoder2_1
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +246,11 @@ class NNrefinev0_1(nn.Module):
                                              nn.ReLU(inplace=False),
                                              nn.Linear(1088, pointc)
                                              )
+            elif self.args.linearp == 'pointnet1.1':
+                self.linearp = nn.Sequential(PointNetEncoder1_1(),  # (B, N, 1088)
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(1088, pointc)
+                                             )
             elif self.args.linearp in ['pointnet2', 'pointnet2_msg']:
                 if self.args.linearp == 'pointnet2':
                     linearp_property = [0.2, 32, [64,64,128]] # radius, nsample, mlp
@@ -254,6 +259,17 @@ class NNrefinev0_1(nn.Module):
                     linearp_property = [[0.1, 0.2, 0.4], [16, 32, 128], [[32, 32, 64], [64, 64, 128], [64, 96, 128]]] # radius_list, nsample_list, mlp_list
                     output_dim = torch.sum(torch.tensor(linearp_property[2], requires_grad=False), dim=0)[-1]
                 self.linearp = nn.Sequential(PointNetEncoder2(self.args.max_num_points3D, linearp_property[0], linearp_property[1], linearp_property[2], self.args.linearp), # (B, N, output_dim)
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(output_dim, pointc)
+                                             )
+            elif self.args.linearp in ['pointnet2.1', 'pointnet2.1_msg']:
+                if self.args.linearp == 'pointnet2.1':
+                    linearp_property = [0.2, 32, [64,64,128]] # radius, nsample, mlp
+                    output_dim = linearp_property[2][-1]
+                elif self.args.linearp == 'pointnet2.1_msg':
+                    linearp_property = [[0.1, 0.2, 0.4], [16, 32, 128], [[32, 32, 64], [64, 64, 128], [64, 96, 128]]] # radius_list, nsample_list, mlp_list
+                    output_dim = torch.sum(torch.tensor(linearp_property[2], requires_grad=False), dim=0)[-1]
+                self.linearp = nn.Sequential(PointNetEncoder2_1(self.args.max_num_points3D, linearp_property[0], linearp_property[1], linearp_property[2], self.args.linearp), # (B, N, output_dim)
                                              nn.ReLU(inplace=False),
                                              nn.Linear(output_dim, pointc)
                                              )
