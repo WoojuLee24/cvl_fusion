@@ -66,6 +66,8 @@ class NNOptimizer2D3D(BaseOptimizer):
         self.dampingnet = DampingNet(conf.damping)
         self.nnrefine = NNrefinev0_1(conf)
         self.nnrefine_rgb = NNrefinev0_2_1(conf)
+        self.uv_pred = None
+        self.uv_gt = None
         assert conf.learned_damping
         super()._init(conf)
 
@@ -101,7 +103,7 @@ class NNOptimizer2D3D(BaseOptimizer):
         if mode in [1, 2]:
             # RGB
             for i in range(self.conf.num_iters):
-                F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
+                F_g2s = self.project_grd_to_map(data, T, cam_q, F_query, F_ref)
 
                 # save_path = '3d_1226'
                 # from pixloc.visualization.viz_2d import imsave
@@ -178,9 +180,9 @@ class NNOptimizer2D3D(BaseOptimizer):
         elif mode == 3:
             # shiftxyr1 added. same as mode 1
             # RGB
-            shiftxyr1 = torch.zeros_like(shift_range)
+            # shiftxyr1 = torch.zeros_like(shift_range)
             for i in range(self.conf.num_iters):
-                F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
+                F_g2s = self.project_grd_to_map(data, T, cam_q, F_query, F_ref)
 
                 # save_path = '/ws/external/visualizations/features'
                 # from pixloc.visualization.viz_2d import imsave
@@ -193,7 +195,7 @@ class NNOptimizer2D3D(BaseOptimizer):
 
                 # rescaling
                 delta = delta * shift_range
-                shiftxyr1 += delta
+                # shiftxyr1 += delta
                 shiftxyr += delta
 
                 T_delta = self.delta_to_Tdelta(delta)
@@ -270,7 +272,7 @@ class NNOptimizer2D3D(BaseOptimizer):
 
                 if F_ref.size(3) == 1280:
                     ## RGB ##
-                    F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
+                    F_g2s = self.project_grd_to_map(data, T, cam_q, F_query, F_ref)
 
                     # # solve the nn optimizer
                     delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
@@ -320,7 +322,7 @@ class NNOptimizer2D3D(BaseOptimizer):
                 self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
 
                 ## RGB ##
-                F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
+                F_g2s = self.project_grd_to_map(data, T, cam_q, F_query, F_ref)
 
                 # # solve the nn optimizer
                 delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
@@ -331,7 +333,6 @@ class NNOptimizer2D3D(BaseOptimizer):
                 shiftxyr1 += delta
                 T_delta = self.delta_to_Tdelta(delta)
                 T = T_delta @ T
-
 
         elif mode in [6, 7]:
             # RGB
@@ -380,7 +381,7 @@ class NNOptimizer2D3D(BaseOptimizer):
                 #######################
                 # RGB only for rotation
                 #######################
-                F_g2s = self.project_grd_to_map(T, cam_q, F_query, F_ref)
+                F_g2s = self.project_grd_to_map(data, T, cam_q, F_query, F_ref)
 
                 # save_path = '3d_1226'
                 # from pixloc.visualization.viz_2d import imsave
@@ -411,7 +412,6 @@ class NNOptimizer2D3D(BaseOptimizer):
 
                 self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
 
-
         if failed.any():
             logger.debug('One batch element had too few valid points.')
 
@@ -433,7 +433,8 @@ class NNOptimizer2D3D(BaseOptimizer):
 
         return  T_delta
 
-    def project_grd_to_map(self, T, cam_q, F_query, F_ref):
+
+    def project_polar_to_grid(self, T, cam_q, F_query, F_ref):
         # g2s with GH and T
         b, c, a, a = F_ref.size()
         b, c, h, w = F_query.size()
@@ -447,6 +448,41 @@ class NNOptimizer2D3D(BaseOptimizer):
         scale = torch.tensor([w - 1, h - 1]).to(uv)
         uv = (uv / scale) * 2 - 1
         uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+        F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+
+        return F_g2s
+
+
+    def project_grd_to_map(self, data, T, cam_q, F_query, F_ref):
+        # g2s with GH and T
+        b, c, a, a = F_ref.size()
+        b, c, h, w = F_query.size()
+        level = data['scale']
+        T_gt = data['data']['T_q2r_gt']
+
+        uv1 = self.get_warp_sat2real(F_ref)
+        uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+
+        uv1 = T.cuda().inv() * uv1
+        uv1_gt = T_gt.cuda().inv() * uv1
+
+        uv, mask = cam_q.world2image(uv1)
+        uv_gt, mask_gt = cam_q.world2image(uv1_gt)
+
+        uv = uv.reshape(b, a, a, 2).contiguous()
+        uv_gt = uv_gt.reshape(b, a, a, 2).contiguous()
+        mask = mask.reshape(b, a, a, 1).contiguous().float()
+        mask_gt = mask_gt.reshape(b, a, a, 1).contiguous().float()
+
+        scale = torch.tensor([w - 1, h - 1]).to(uv)
+        uv = (uv / scale) * 2 - 1
+        uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+        uv_gt = (uv_gt / scale) * 2 - 1
+        uv_gt = uv_gt.clamp(min=-2, max=2)
+
+        self.uv_pred = uv * mask
+        self.uv_gt = uv_gt * mask_gt
+
         F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
 
         return F_g2s
