@@ -517,3 +517,56 @@ class Camera(TensorWrapper):
         c = torch.cat([self.c, z], dim=-1).unsqueeze(-2)
 
         return p3d * f #+ c
+
+def project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836):
+    # g2s with GH and T
+    b, c, a, a = F_ref.size()
+    b, c, h, w = F_query.size()
+
+    uv1 = get_warp_sat2real(cam_ref, F_ref, meter_per_pixel)
+    uv1 = uv1.reshape(b, -1, 3).contiguous()
+
+    uv1 = T.cuda().inv() * uv1
+    uv, mask = cam_q.world2image(uv1)
+
+    uv = uv.reshape(b, a, a, 2).contiguous()
+    mask = mask.reshape(b, a, a, 1).contiguous().float()
+
+    scale = torch.tensor([w - 1, h - 1]).to(uv)
+    uv = (uv / scale) * 2 - 1
+    uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+
+    return uv
+
+def get_warp_sat2real(cam_ref, F_ref, meter_per_pixel):
+    # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
+    # realword: X: south, Y:down, Z: east   origin is set to the ground plane
+
+    B, C, _, satmap_sidelength = F_ref.size()
+
+    # meshgrid the sat pannel
+    i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
+    ii, jj = torch.meshgrid(i, j)  # i:h,j:w
+
+    # uv is coordinate from top/left, v: south, u:east
+    uv = torch.stack([jj, ii], dim=-1).float()  # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+    # sat map from top/left to center coordinate
+    # u0 = v0 = satmap_sidelength // 2
+    # uv_center = uv - torch.tensor(
+    #     [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+    center = cam_ref.c
+    uv_center = uv.repeat(B, 1, 1, 1) - center.unsqueeze(dim=1).unsqueeze(
+        dim=1)  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+    # inv equation (1)
+    # meter_per_pixel = 0.07463721  # 0.298548836 / 5 # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512) 0.078302836
+    meter_per_pixel *= 1280 / satmap_sidelength
+    # R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
+    # Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
+
+    XY = uv_center * meter_per_pixel
+    Z = torch.zeros_like(XY[..., 0:1])
+    XYZ = torch.cat([XY[..., :1], XY[..., 1:], Z], dim=-1)  # [sidelength,sidelength,4]
+
+    return XYZ

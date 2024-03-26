@@ -7,9 +7,10 @@ from .base_optimizer import BaseOptimizer
 from ..geometry import Camera, Pose
 from ..geometry.optimization import optimizer_step
 from ..geometry import losses  # noqa
-from pixloc.pixlib.geometry.interpolation import mask_in_image
-from pytorch3d.structures import Pointclouds, Volumes
-from pytorch3d.ops import add_pointclouds_to_volumes
+from pixloc.pixlib.geometry.wrappers import project_grd_to_map
+
+from .pointnet import PointNetEncoder
+from .pointnet2 import PointNetEncoder2
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,19 @@ class NNOptimizer2D(BaseOptimizer):
         pose_from='aa',
         pose_loss=False,
         main_loss='reproj',
-        range=False,
-        linearp=False,
+        coe_lat=1.,
+        coe_lon=1.,
+        coe_rot=1.,
+        trans_range=1.,
+        rot_range=1.,
+        range=False,  # 'none',   # 'r', 't', 'rt'
+        cascade=False,
+        linearp='none', # 'none', 'basic', 'pointnet', 'pointnet2', 'pointnet2_msg'
         attention=False,
         mask=False,
-        sat_mask=False,
-        input_dim=[128, 128, 32],   # [32, 128, 128],
+        input_dim=[128, 128, 32],  # [32, 128, 128],
+        pool_rgb='none',
+        mode=1, # 2
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -58,21 +66,26 @@ class NNOptimizer2D(BaseOptimizer):
         self.conf = conf
         self.dampingnet = DampingNet(conf.damping)
         self.nnrefine = NNrefinev0_1(conf)
+        self.nnrefine_rgb = NNrefinev0_2_1(conf)
+        self.uv_pred = None
+        self.uv_gt = None
         assert conf.learned_damping
         super()._init(conf)
 
 
     def _forward(self, data: Dict):
         return self._run(
-            data['p3D'], data['F_ref'], data['F_q'], data['T_init'],
-            data['camera'], data['mask'], data.get('W_ref_q'), data, data['scale'])
+            data['p3D'], data['F_ref'], data['F_q'], data['F_q_key'], data['T_init'],
+            data['cam_ref'], data['cam_q'], data['mask'], data.get('W_ref_q'), data,
+            data['scale'], data['mode'])
 
 
-    def _run(self, p3D: Tensor, F_ref: Tensor, F_query: Tensor,
-             T_init: Pose, camera: Camera, mask: Optional[Tensor] = None,
+    def _run(self, p3D: Tensor, F_ref: Tensor, F_query: Tensor, F_q_key: Tensor,
+             T_init: Pose, cam_ref: Camera, cam_q: Camera, mask: Optional[Tensor] = None,
              W_ref_query: Optional[Tuple[Tensor, Tensor, int]] = None,
              data=None,
-             scale=None):
+             scale=None,
+             mode='rgb'):
 
         T = T_init
         shift_gt = data['data']['shift_gt']
@@ -80,140 +93,180 @@ class NNOptimizer2D(BaseOptimizer):
 
         J_scaling = None
         if self.conf.normalize_features:
-            F_query = torch.nn.functional.normalize(F_query, dim=-1)
-        args = (camera, p3D, F_ref, F_query, W_ref_query)
+            F_q_key = torch.nn.functional.normalize(F_q_key, dim=-1)
+        args = (cam_ref, p3D, F_ref, F_q_key, W_ref_query)
         failed = torch.full(T.shape, False, dtype=torch.bool, device=T.device)
 
         lambda_ = self.dampingnet()
         shiftxyr = torch.zeros_like(shift_range)
 
-        b, c, a, _ = F_ref.size()
-
         for i in range(self.conf.num_iters):
-            # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
-            # res, valid, w_unc, F_ref2D, info = self.cost_fn.residuals(T, *args)
+            # uv = self.project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836)
+            uv = project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836)
+            F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
 
-            p3D_ref = T * p3D  # q_3d to q2r_3d
-            # p2D, visible = camera.world2image(p3D_ref)
-            p3D_ref, valid = camera.world2image3d(p3D_ref)
-
-            # F_p2D_raw, valid, gradients = self.interpolator(F_ref, p2D, return_gradients=False)  # get g2r 2d features
-            # valid = mask_in_image(p3D_ref[..., :-1], (a, a), pad=0)
-            # valid = valid & visible
-
-            if mask is not None:
-                valid &= mask
-            failed = failed | (valid.long().sum(-1) < 10)  # too few points
-
-            if self.conf.mask:
-                valid = valid.float().unsqueeze(dim=-1).detach()
-                F_query = F_query * valid
-                # F_ref2D = F_ref2D * valid
-                # p3D = p3D * valid
-                p3D_ref = p3D_ref * valid
-
-            # F_q2r_control = self.voxelize(p3D_ref, F_query, size=(b, c, 5, a, a), level=scale)
-            F_q2r = camera.voxelize(p3D_ref, F_query, size=(b, c, 20, a, a), level=scale)
-
-            # ## debug
+            # save_path = '3d_1226'
             # from pixloc.visualization.viz_2d import imsave
-            #
-            # F_q2r_cpu = F_q2r[0].mean(dim=0, keepdim=True)
-            # F_ref_cpu = F_ref[0].mean(dim=0, keepdim=True)
-            # imsave(F_ref_cpu, '2d_1212', f'{scale}F_ref')
-            # imsave(F_q2r_cpu, '2d_1212', f'{scale}F_q2r')
-            if self.conf.sat_mask:
-                sat_mask = (F_q2r.mean(dim=1, keepdim=True)!=0).float().detach()
-                F_ref = F_ref * sat_mask
-            delta = self.nnrefine(F_q2r, F_ref, scale)
+            # imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
 
-            if self.conf.pose_from == 'aa':
-                # compute the pose update
-                dt, dw = delta.split([3, 3], dim=-1)
-                # dt, dw = delta.split([2, 1], dim=-1)
-                # fix z trans, roll and pitch
-                zeros = torch.zeros_like(dw[:,-1:])
-                dw = torch.cat([zeros,zeros,dw[:,-1:]], dim=-1)
-                dt = torch.cat([dt[:,0:2],zeros], dim=-1)
-                T_delta = Pose.from_aa(dw, dt)
-            elif self.conf.pose_from == 'rt':
-                # rescaling
-                delta = delta * shift_range
-                shiftxyr += delta
+            # # solve the nn optimizer
+            delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
 
-                dt, dw = delta.split([2, 1], dim=-1)
-                B = dw.size(0)
+            # rescaling
+            delta = delta * shift_range
+            shiftxyr += delta
 
-                cos = torch.cos(dw)
-                sin = torch.sin(dw)
-                zeros = torch.zeros_like(cos)
-                ones = torch.ones_like(cos)
-                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
-                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+            dt, dw = delta.split([2, 1], dim=-1)
+            B = dw.size(0)
 
-                dt = torch.cat([dt, zeros], dim=-1)
+            cos = torch.cos(dw)
+            sin = torch.sin(dw)
+            zeros = torch.zeros_like(cos)
+            ones = torch.ones_like(cos)
+            dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+            dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+            dt = torch.cat([dt, zeros], dim=-1)
 
-                T_delta = Pose.from_Rt(dR, dt)
+            T_delta = Pose.from_Rt(dR, dt)
+            T = T_delta @ T
 
-            # T = T_delta @ T
-            if self.conf.range == True:
-                shift = (T_delta @ T) @ T_init.inv()
-                B = dt.size(0)
-                t = shift.t[:, :2]
-                rand_t = torch.distributions.uniform.Uniform(-1, 1).sample([B, 2]).to(dt.device)
-                rand_t.requires_grad = True
-                t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
-                zero = torch.zeros([B, 1]).to(t.device)
-                # zero = shift.t[:, 2:3]
-                t = torch.cat([t, zero], dim=1)
-                shift._data[..., -3:] = t
-                T = shift @ T_init  # TODO
-            else:
-                T = T_delta @ T
-
-            # self.log(i=i, T_init=T_init, T=T, T_delta=T_delta, cost=cost,
-            #          valid=valid, w_unc=w_unc, w_loss=w_loss, H=H, J=J)
             self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
-
-            # if self.early_stop(i=i, T_delta=T_delta, grad=g, cost=cost): # TODO
-            #     break
 
         if failed.any():
             logger.debug('One batch element had too few valid points.')
 
         return T, failed, shiftxyr
 
+    def delta_to_Tdelta(self, delta):
+        dt, dw = delta.split([2, 1], dim=-1)
+        B = dw.size(0)
 
-    # def voxelize(self, xyz, feat, size, level):
-    #     B, C, D, A, _ = size
-    #     device = feat.device
+        cos = torch.cos(dw)
+        sin = torch.sin(dw)
+        zeros = torch.zeros_like(cos)
+        ones = torch.ones_like(cos)
+        dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+        dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+        dt = torch.cat([dt, zeros], dim=-1)
+
+        T_delta = Pose.from_Rt(dR, dt)
+
+        return  T_delta
+
+
+    def project_polar_to_grid(self, T, cam_q, F_query, F_ref):
+        # g2s with GH and T
+        b, c, a, a = F_ref.size()
+        b, c, h, w = F_query.size()
+        uv1 = self.get_warp_sat2real(F_ref)
+        uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+        uv1 = T.cuda().inv() * uv1
+        # uv, mask = cam_query.world2image(uv1)
+        uv, mask = cam_q.world2image(uv1)
+        uv = uv.reshape(b, a, a, 2).contiguous()
+
+        scale = torch.tensor([w - 1, h - 1]).to(uv)
+        uv = (uv / scale) * 2 - 1
+        uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+        F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+
+        return F_g2s
+
+
+    # def project_grd_to_map(self, data, T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836):
+    #     # g2s with GH and T
+    #     b, c, a, a = F_ref.size()
+    #     b, c, h, w = F_query.size()
+    #     level = data['scale']
+    #     T_gt = data['data']['T_q2r_gt']
     #
-    #     # R = torch.tensor([0, 0, 1, 1, 0, 0, 0, 1, 0], dtype=torch.float32, device=feat.device).reshape(3, 3)
-    #     #
-    #     # if xyz.dim() == 4:
-    #     #     zxy = torch.sum(R[None, None, None, :, :] * xyz[:, :, :, None, :], dim=-1)
-    #     # elif xyz.dim() == 3:
-    #     #     zxy = torch.sum(R[None, None, :, :] * xyz[:, :, None, :], dim=-1)
-    #     #
-    #     # meter_per_pixel = utils.get_meter_per_pixel() * utils.get_process_satmap_sidelength() / A
-    #     # meter_per_vol = torch.tensor([meter_per_pixel, meter_per_pixel, 1], dtype=torch.float32, device=feat.device)
-    #     # zxy = zxy / meter_per_vol # + shift
+    #     uv1 = self.get_warp_sat2real(cam_ref, F_ref, meter_per_pixel)
+    #     # uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+    #     uv1 = uv1.reshape(b, -1, 3).contiguous()
     #
-    #     pcs = Pointclouds(points=xyz, features=feat)
+    #     uv1 = T.cuda().inv() * uv1
+    #     uv1_gt = T_gt.cuda().inv() * uv1
     #
-    #     init_vol = Volumes(features=torch.zeros(size).to(device),
-    #                        densities=torch.zeros((B, 1, D, A, A)).to(device),
-    #                        volume_translation=[0, 0, 0],
-    #                        )
-    #     updated_vol = add_pointclouds_to_volumes(pointclouds=pcs,
-    #                                              initial_volumes=init_vol,
-    #                                              mode='trilinear',
-    #                                              )
+    #     uv, mask = cam_q.world2image(uv1)
+    #     uv_gt, mask_gt = cam_q.world2image(uv1_gt)
     #
-    #     features = updated_vol.features()
-    #     features = features.mean(dim=2)
+    #     uv = uv.reshape(b, a, a, 2).contiguous()
+    #     uv_gt = uv_gt.reshape(b, a, a, 2).contiguous()
+    #     mask = mask.reshape(b, a, a, 1).contiguous().float()
+    #     mask_gt = mask_gt.reshape(b, a, a, 1).contiguous().float()
     #
-    #     return features
+    #     scale = torch.tensor([w - 1, h - 1]).to(uv)
+    #     uv = (uv / scale) * 2 - 1
+    #     uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+    #     uv_gt = (uv_gt / scale) * 2 - 1
+    #     uv_gt = uv_gt.clamp(min=-2, max=2)
+    #
+    #     # self.uv_pred = uv * mask
+    #     # self.uv_gt = uv_gt * mask_gt
+    #
+    #     F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+    #
+    #     return F_g2s, uv * mask, uv_gt * mask_gt
+
+
+    def project_grd_to_map(self, T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836):
+        # g2s with GH and T
+        b, c, a, a = F_ref.size()
+        b, c, h, w = F_query.size()
+
+        uv1 = self.get_warp_sat2real(cam_ref, F_ref, meter_per_pixel)
+        uv1 = uv1.reshape(b, -1, 3).contiguous()
+
+        uv1 = T.cuda().inv() * uv1
+        uv, mask = cam_q.world2image(uv1)
+
+        uv = uv.reshape(b, a, a, 2).contiguous()
+        mask = mask.reshape(b, a, a, 1).contiguous().float()
+
+        scale = torch.tensor([w - 1, h - 1]).to(uv)
+        uv = (uv / scale) * 2 - 1
+        uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+
+        # F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+
+        return uv
+
+
+    def get_warp_sat2real(self, cam_ref, F_ref, meter_per_pixel):
+        # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
+        # realword: X: south, Y:down, Z: east   origin is set to the ground plane
+
+        B, C, _, satmap_sidelength = F_ref.size()
+
+        # meshgrid the sat pannel
+        i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
+        ii, jj = torch.meshgrid(i, j)  # i:h,j:w
+
+        # uv is coordinate from top/left, v: south, u:east
+        uv = torch.stack([jj, ii], dim=-1).float()  # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+        # sat map from top/left to center coordinate
+        # u0 = v0 = satmap_sidelength // 2
+        # uv_center = uv - torch.tensor(
+        #     [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+        center = cam_ref.c
+        uv_center = uv.repeat(B, 1, 1, 1) - center.unsqueeze(dim=1).unsqueeze(dim=1)  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+        # inv equation (1)
+        # meter_per_pixel = 0.07463721  # 0.298548836 / 5 # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512) 0.078302836
+        meter_per_pixel *= 1280 / satmap_sidelength
+        # R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
+        # Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
+
+        XY = uv_center * meter_per_pixel
+        Z = torch.zeros_like(XY[..., 0:1])
+        ones = torch.ones_like(Z)
+        # sat2realwap = torch.cat([XY[:, :, :1], Z, XY[:, :, 1:], ones], dim=-1)  # [sidelength,sidelength,4]
+        XYZ = torch.cat([XY[..., :1], XY[..., 1:], Z], dim=-1)  # [sidelength,sidelength,4]
+        # XYZ = XYZ.unsqueeze(dim=0)
+        # XYZ = XYZ.reshape(B, -1, 3)
+
+        return XYZ
 
 class NNrefinev0_1(nn.Module):
     def __init__(self, args):
@@ -221,7 +274,38 @@ class NNrefinev0_1(nn.Module):
         self.args = args
 
         self.cin = self.args.input_dim  # [64, 32, 16] # [128, 128, 32]
-        self.cout = 32
+        self.cout = 128
+        pointc = 128
+
+        if self.args.linearp != 'none':
+            self.cin = [c+pointc for c in self.cin]
+            if self.args.linearp == 'basic':
+                self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(16, pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc))
+            elif self.args.linearp == 'pointnet':
+                self.linearp = nn.Sequential(PointNetEncoder(), # (B, N, 1088)
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(1088, pointc)
+                                             )
+            elif self.args.linearp in ['pointnet2', 'pointnet2_msg']:
+                if self.args.linearp == 'pointnet2':
+                    linearp_property = [0.2, 32, [64,64,128]] # radius, nsample, mlp
+                    output_dim = linearp_property[2][-1]
+                elif self.args.linearp == 'pointnet2_msg':
+                    linearp_property = [[0.1, 0.2, 0.4], [16, 32, 128], [[32, 32, 64], [64, 64, 128], [64, 96, 128]]] # radius_list, nsample_list, mlp_list
+                    output_dim = torch.sum(torch.tensor(linearp_property[2], requires_grad=False), dim=0)[-1]
+                self.linearp = nn.Sequential(PointNetEncoder2(self.args.max_num_points3D, linearp_property[0], linearp_property[1], linearp_property[2], self.args.linearp), # (B, N, output_dim)
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(output_dim, pointc)
+                                             )
+        else:
+            self.cin = [c+3 for c in self.cin]
+
 
         # channel projection
         if self.args.input in ['concat']:
@@ -233,42 +317,70 @@ class NNrefinev0_1(nn.Module):
             self.yout = 3
 
         self.linear0 = nn.Sequential(nn.ReLU(inplace=True),
-                                     nn.Conv2d(self.cin[0], self.cout, kernel_size=3, stride=1, padding=1))
+                                     nn.Linear(self.cin[0], self.cout))
         self.linear1 = nn.Sequential(nn.ReLU(inplace=True),
-                                     nn.Conv2d(self.cin[1], self.cout, kernel_size=3, stride=1, padding=1))
+                                     nn.Linear(self.cin[1], self.cout))
         self.linear2 = nn.Sequential(nn.ReLU(inplace=True),
-                                     nn.Conv2d(self.cin[2], self.cout, kernel_size=3, stride=1, padding=1))
+                                     nn.Linear(self.cin[2], self.cout))
 
         # if self.args.pool == 'none':
-        if self.args.pool == 'aap2':
-            self.pooling = nn.AdaptiveAvgPool2d((20, 20))
-            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
-                                         nn.Linear(self.cout * 20 * 20, 1024),
+        if self.args.pool == 'embed':
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 256),
                                          nn.ReLU(inplace=False),
-                                         nn.Linear(1024, 32),
+                                         nn.Linear(256, 64),
                                          nn.ReLU(inplace=False),
-                                         nn.Linear(32, self.yout),
-                                         nn.Tanh())
-        elif self.args.pool == 'aap3':
-            self.pooling = nn.AdaptiveAvgPool2d((40, 40))
-            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
-                                         nn.Linear(self.cout * 40 * 40, 2048),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(2048, 64),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(64, self.yout),
-                                         nn.Tanh())
+                                         nn.Linear(64, 1)
+                                         )
 
+        elif self.args.pool == 'embed_aap2':
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
 
-    def forward(self, query_feat, ref_feat, scale):
+        self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                     nn.Linear(self.cout, 128),
+                                     nn.ReLU(inplace=False),
+                                     nn.Linear(128, 32),
+                                     nn.ReLU(inplace=False),
+                                     nn.Linear(32, self.yout),
+                                     nn.Tanh())
 
-        B, C, A, _ = query_feat.size()
+    def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale):
+
+        B, N, C = query_feat.size()
+
+        # normalization
+        if self.args.norm == 'zsn':
+            query_feat = (query_feat - query_feat.mean()) / (query_feat.std() + 1e-6)
+            ref_feat = (ref_feat - ref_feat.mean()) / (ref_feat.std() + 1e-6)
+        else:
+            pass
+
+        if self.args.linearp != 'none':
+            p3D_query = p3D_query.contiguous()
+            p3D_query_feat = self.linearp(p3D_query)
+            p3D_ref = p3D_ref.contiguous()
+            p3D_ref_feat = self.linearp(p3D_ref)
+        else:
+            p3D_query_feat = p3D_query.contiguous()
+            p3D_ref_feat = p3D_ref.contiguous()
+
+        query_feat = torch.cat([query_feat, p3D_query_feat], dim=2)
+        ref_feat = torch.cat([ref_feat, p3D_ref_feat], dim=2)
+
 
         if self.args.input == 'concat':     # default
-            r = torch.cat([query_feat, ref_feat], dim=1)
+            r = torch.cat([query_feat, ref_feat], dim=-1)
         else:
             r = query_feat - ref_feat  # [B, C, H, W]
 
+        B, N, C = r.shape
         if 2-scale == 0:
             x = self.linear0(r)
         elif 2-scale == 1:
@@ -276,10 +388,102 @@ class NNrefinev0_1(nn.Module):
         elif 2-scale == 2:
             x = self.linear2(r)
 
-        if 'aap' in self.args.pool:
+        if self.args.pool == 'max':
+            x = torch.max(x, 1, keepdim=True)[0]
+        elif 'embed' in self.args.pool:
+            x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
+        elif self.args.pool == 'avg':
+            x = torch.mean(x, 1, keepdim=True)
 
+        # if self.args.pool == 'none':
         x = x.view(B, -1)
         y = self.mapping(x)  # [B, 3]
 
         return y
+
+
+class NNrefinev0_2_1(nn.Module):
+    def __init__(self, args):
+        super(NNrefinev0_2_1, self).__init__()
+        self.args = args
+
+        # channel projection
+        self.cin = self.args.input_dim  # [64, 32, 16] # [128, 128, 32]
+        self.cout = 32
+
+        if self.args.pose_from == 'aa':
+            self.yout = 6
+        elif self.args.pose_from == 'rt':
+            self.yout = 3
+
+        self.linear0 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Conv2d(self.cin[0], self.cout, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.linear1 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Conv2d(self.cin[1], self.cout, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.linear2 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Conv2d(self.cin[2], self.cout, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+
+        if self.args.pool == 'gap':
+            self.mapping = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Linear(64, 16),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(16, 3),
+                                         nn.Tanh())
+
+        elif self.args.pool_rgb == 'aap2':
+            self.pool = nn.AdaptiveAvgPool2d((16, 16))
+            self.mapping = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Linear(self.cout * 16 * 16, 1024),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(1024, 32),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(32, 3),
+                                         nn.Tanh())
+
+        elif self.args.pool_rgb == 'aap3':
+            self.pool = nn.AdaptiveAvgPool2d((32, 32))
+            self.mapping = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Linear(64 * 32 * 32, 2048),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(2048, 64),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(64, 3),
+                                         nn.Tanh())
+
+
+    def forward(self, pred_feat, ref_feat, scale):
+
+        B, C, _, _ = pred_feat.size()
+
+        # normalization
+        if self.args.norm == 'zsn':
+            pred_feat = (pred_feat - pred_feat.mean()) / (pred_feat.std() + 1e-6)
+            ref_feat = (ref_feat - ref_feat.mean()) / (ref_feat.std() + 1e-6)
+        else:
+            pass
+
+        if self.args.input == 'concat':     # default
+            r = torch.cat([pred_feat, ref_feat], dim=-1)
+        else:
+            r = pred_feat - ref_feat  # [B, C, H, W]
+
+        B, C, _, _ = r.shape
+        if 2-scale == 0:
+            x = self.linear0(r)
+        elif 2 - scale == 1:
+            x = self.linear1(r)
+        elif 2 - scale == 2:
+            x = self.linear2(r)
+
+        if self.args.pool == 'gap':
+            x = torch.mean(x, dim=[2, 3])
+            y = self.mapping(x)  # [B, 3]
+        elif 'aap' in self.args.pool_rgb:
+            x = self.pool(x)
+            B, C, H, W = x.size()
+            x = x.view(B, C*H*W)
+            y = self.mapping(x)  # [B, 3]
+
+        return y
+

@@ -138,7 +138,7 @@ class TwoViewRefiner2D3D(BaseModel):
 
             if self.conf.normalize_features in ['l2', True]:
                 F_q_key = nnF.normalize(F_q_key, dim=2)  # B x N x C
-                F_q = nnF.normalize(F_q, dim=1)  # B x N x C
+                F_q = nnF.normalize(F_q, dim=1)  # B x C X H X W
                 F_ref = nnF.normalize(F_ref, dim=1)  # B x C x W x H
             elif self.conf.normalize_features == 'zsn':
                 F_q_key = (F_q_key - F_q_key.mean(dim=2, keepdim=True)) / (F_q_key.std(dim=2, keepdim=True) + 1e-6)

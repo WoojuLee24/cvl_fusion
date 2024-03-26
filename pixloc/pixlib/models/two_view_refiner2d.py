@@ -13,6 +13,8 @@ from pixloc.pixlib.models.base_model import BaseModel
 from pixloc.pixlib.models import get_model
 from pixloc.pixlib.models.utils import masked_mean, merge_confidence_map, extract_keypoints
 from pixloc.pixlib.geometry.losses import scaled_barron
+from pixloc.pixlib.geometry.wrappers import project_grd_to_map
+
 from pixloc.visualization.viz_2d import features_to_RGB,plot_images,plot_keypoints
 from pixloc.pixlib.utils.tensor import map_tensor
 import matplotlib as mpl
@@ -47,7 +49,11 @@ class TwoViewRefiner2D(BaseModel):
             'input': 'res',
             'pose_loss': False,
             'main_loss': 'reproj',
-            'attention': False
+            'coe_lat': 1.,
+            'coe_lon': 1.,
+            'coe_rot': 1.,
+            'attention': False,
+            'mode': 1,
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -100,6 +106,9 @@ class TwoViewRefiner2D(BaseModel):
         pred['T_q2r_init'] = []
         pred['T_q2r_opt'] = []
         pred['shiftxyr'] = []
+        pred['shiftxyr1'] = []
+        pred['uv_opt'] = []
+        pred['uv_gt'] = []
         pred['pose_loss'] = []
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
@@ -120,7 +129,7 @@ class TwoViewRefiner2D(BaseModel):
             cam_q = pred['query']['camera_pyr'][i]
 
             p2D_query, visible = cam_q.world2image(data['query']['T_w2cam']*p3D_query)
-            F_q, mask, _ = opt.interpolator(F_q, p2D_query)
+            F_q_key, mask, _ = opt.interpolator(F_q, p2D_query)
             mask &= visible
 
 
@@ -130,20 +139,77 @@ class TwoViewRefiner2D(BaseModel):
             W_ref_q = (W_ref, W_q, 1)
 
             if self.conf.normalize_features in ['l2', True]:
-                F_q = nnF.normalize(F_q, dim=2)  # B x N x C
+                F_q_key = nnF.normalize(F_q_key, dim=2)  # B x N x C
+                F_q = nnF.normalize(F_q, dim=1)  # B x N x C
                 F_ref = nnF.normalize(F_ref, dim=1)  # B x C x W x H
             elif self.conf.normalize_features == 'zsn':
-                F_q = (F_q - F_q.mean(dim=2, keepdim=True)) / (F_q.std(dim=2, keepdim=True) + 1e-6)
+                F_q_key = (F_q_key - F_q_key.mean(dim=2, keepdim=True)) / (F_q_key.std(dim=2, keepdim=True) + 1e-6)
+                F_q = (F_q - F_q.mean(dim=1, keepdim=True)) / (F_q.std(dim=1, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
+            # save_path = '/ws/external/visualizations/features'
+            # from pixloc.visualization.viz_2d import imsave
+            # # # from pixloc.pixlib.geometry import Camera, Pose
+            # # # R_yaw = torch.tensor([[np.cos(0), -np.sin(0), 0], [np.sin(0), np.cos(0), 0], [0, 0, 1]], dtype=torch.float32).cuda()
+            # # # T = torch.tensor([30., 0., 0], dtype=torch.float32).cuda()
+            # # # shift = Pose.from_Rt(R_yaw, T)
+            # # # data['T_q2r_shift'] = shift @ data['T_q2r_gt']
+            #
+            # image_g2s, uv = self.project_grd_to_map(data['T_q2r_gt'],
+            #                                         data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
+            #                                         data['query']['image'], data['ref']['image'],
+            #                                         meter_per_pixel=0.078302836)
+            # image_g2s_init, uv = self.project_grd_to_map(data['T_q2r_init'],
+            #                                              data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
+            #                                              data['query']['image'], data['ref']['image'],
+            #                                              meter_per_pixel=0.078302836)
+            #
+            # imsave(image_g2s[0], save_path, f'0g2s_gt')
+            # imsave(image_g2s_init[0], save_path, f'0g2s_gt_init')
+            # imsave(data['query']['image'][0], save_path, f'0grd')
+            # imsave(data['ref']['image'][0], save_path, f'0sat')
+            #
+            # imsave(image_g2s[1], save_path, f'1g2s_gt')
+            # imsave(image_g2s_init[1], save_path, f'1g2s_gt_init')
+            # imsave(data['query']['image'][1], save_path, f'1grd')
+            # imsave(data['ref']['image'][1], save_path, f'1sat')
+
+            # imsave(image_g2s2_1[0], save_path, f'0g2s_gt2.1')
+            # imsave(image_g2s2[0], save_path, f'0g2s_gt2')
+            # imsave(image_g2s3[0], save_path, f'0g2s_gt3')
+            # imsave(image_g2s4[0], save_path, f'0g2s_gt4')
+            # # imsave(image_g2s_grid[0], save_path, f'0g2s_gtgrid')
+            # # imsave(image_g2s_cvl[0], save_path, f'0g2s_gt_cvl')
+            #
+            # imsave(data['ref']['image'][0], save_path, f'0g2s_gt0')
+            # imsave(data['query']['image'][0], save_path, f'0grd')
+            #
+            # imsave(image_g2s[1], save_path, f'1g2s_gt')
+            # imsave(image_g2s_init[1], save_path, f'1g2s_gt_init')
+            # imsave(image_g2s2[1], save_path, f'1g2s_gt2')
+            # imsave(image_g2s2_1[1], save_path, f'1g2s_gt2.1')
+            # imsave(image_g2s3[1], save_path, f'1g2s_gt3')
+            # imsave(image_g2s4[1], save_path, f'1g2s_gt4')
+            # # imsave(image_g2s_grid[1], save_path, f'1g2s_gtgrid')
+            # # imsave(image_g2s_cvl[1], save_path, f'1g2s_gt_cvl')
+            #
+            # imsave(data['ref']['image'][1], save_path, f'1g2s_gt0')
+            # imsave(data['query']['image'][1], save_path, f'1grd')
+
+            ### Fusion ###
+
             T_opt, failed, shiftxyr = opt(dict(
-                p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
-                mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
+                p3D=p3D_query, F_ref=F_ref, F_q=F_q, F_q_key=F_q_key, T_init=T_init, cam_ref=cam_ref, cam_q=cam_q,
+                mask=mask, W_ref_q=W_ref_q, data=data, scale=i, mode=self.conf.optimizer.mode))
 
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
             pred['shiftxyr'].append(shiftxyr)
-            T_init = T_opt.detach()
+
+            if self.conf.optimizer.cascade:
+                T_init = T_opt
+            else:
+                T_init = T_opt.detach()
 
             # query & reprojection GT error, for query unet back propogate  # PAB Loss
             if self.conf.optimizer.pose_loss: #pose_loss:
@@ -153,6 +219,154 @@ class TwoViewRefiner2D(BaseModel):
                 pred['pose_loss'].append(diff_loss)
 
         return pred
+
+    def project_grd_to_map2(self, T, cam_q, F_query, F_ref):
+        # g2s with GH and T
+        b, c, a, a = F_ref.size()
+        b, c, h, w = F_query.size()
+        uv1 = self.get_warp_sat2real(F_ref)
+        uv, mask = self.seq_warp_real2camera(T, cam_q, uv1)
+
+        # uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+        # uv1 = T.cuda().inv() * uv1
+        # uv, mask = cam_q.world2image(uv1)
+        # uv = uv.reshape(b, a, a, 2).contiguous()
+
+        scale = torch.tensor([w - 1, h - 1]).to(uv)
+        uv = (uv / scale) * 2 - 1
+        uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+        F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+
+        return F_g2s
+
+    def seq_warp_real2camera(self, T_q2r, cam_q, uv1):
+        # realword: X: south, Y:down, Z: east
+        # camera: u:south, v: down from center (when heading east, need to rotate heading angle)
+        # XYZ_1:[H,W,4], heading:[B,1], camera_k:[B,3,3], shift:[B,2]
+        XYZ_1 = torch.cat([uv1, torch.ones_like(uv1[..., 0:1])], dim=-1)
+        T_r2q = T_q2r.cuda().inv()
+        R = T_r2q.R  # shape = [B,3,3]
+        T = T_r2q.t.unsqueeze(dim=-1)
+
+        B = R.shape[0]
+
+        camera_height = 1.65
+        # camera offset, shift[0]:east,Z, shift[1]:north,X
+        # height = camera_height * torch.ones_like([B, 1])
+        # T = torch.cat([shift_v_meters, height, -shift_u_meters], dim=-1)  # shape = [B, 3]
+        # T = torch.unsqueeze(T, dim=-1)  # shape = [B,3,1]
+        # T = torch.einsum('bij, bjk -> bik', R, T0)
+        # T = R @ T0
+
+        # P = K[R|T]
+        zeros = torch.zeros_like(cam_q.f[:, 0:1])
+        ones = torch.ones_like(cam_q.f[:, 0:1])
+        camera_k = torch.cat([cam_q.f[:, 0:1], zeros, cam_q.c[:, 0:1],
+                              zeros, cam_q.f[:, 1:2], cam_q.c[:, 1:2],
+                              zeros, zeros, ones], dim=-1)
+        camera_k = camera_k.view(B, 3, 3)
+        # P = torch.einsum('bij, bjk -> bik', camera_k, torch.cat([R, T], dim=-1)).float()  # shape = [B,3,4]
+        P = camera_k @ torch.cat([R, T], dim=-1)
+
+        # uv1 = torch.einsum('bij, hwj -> bhwi', P, XYZ_1)  # shape = [B, H, W, 3]
+        uv1 = torch.sum(P[:, None, None, :, :] * XYZ_1[None, :, :, None, :], dim=-1)
+        # only need view in front of camera ,Epsilon = 1e-6
+        uv1_last = torch.maximum(uv1[:, :, :, 2:], torch.ones_like(uv1[:, :, :, 2:]) * 1e-6)
+        uv = uv1[:, :, :, :2] / uv1_last  # shape = [B, H, W, 2]
+
+        mask = torch.greater(uv1_last, torch.ones_like(uv1[:, :, :, 2:]) * 1e-6)
+        mask = torch.squeeze(mask, dim=-1)
+        return uv, mask
+
+
+    def project_polar_to_grid(self, uv, T, cam_q, F_query, F_ref):
+        # g2s with GH and T
+        b, c, a, a = F_ref.size()
+        b, c, h, w = F_query.size()
+
+        f, c = cam_q.f[..., 0][..., None, None], cam_q.c[..., 0][..., None, None]
+        u = uv[..., 0] / (uv[..., -1] + 1e-8) * f # + c
+        z_idx = uv[..., -1]
+        z_idx = torch.arange(1279, -1, -1, dtype=torch.float32).unsqueeze(1).repeat(1,  1280).repeat(2, 1, 1).cuda()
+        uv_grid = torch.stack([u, z_idx], -1)
+
+        # uv1 = self.get_warp_sat2real(F_ref)
+        #
+        # # uv, mask = cam_query.world2image(uv1)
+        # uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+        # uv1 = T.cuda().inv() * uv1
+        #
+        # uv, mask = cam_q.world2image(uv1)
+        # uv = uv.reshape(b, a, a, 2).contiguous()
+        #
+        # # scale = torch.tensor([w - 1, h - 1]).to(uv)
+        scale = torch.tensor([w - 1, h - 1]).to(uv_grid)
+        uv_grid = (uv_grid / scale) * 2 - 1
+        uv_grid = uv_grid.clamp(min=-2, max=2)  # ideally use the mask instead
+        F_g2s = torch.nn.functional.grid_sample(F_query, uv_grid, mode='bilinear', align_corners=True)
+
+        return F_g2s
+
+    def project_grd_to_map(self, T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836):
+        # g2s with GH and T
+        b, c, a, a = F_ref.size()
+        b, c, h, w = F_query.size()
+
+        uv1 = self.get_warp_sat2real(cam_ref, F_ref, meter_per_pixel)
+        # uv1 = uv1.reshape(-1, 3).repeat(b, 1, 1).contiguous()
+        uv1 = uv1.reshape(b, -1, 3).contiguous()
+
+        uv1 = T.cuda().inv() * uv1
+
+        uv, mask = cam_q.world2image(uv1)
+
+        uv = uv.reshape(b, a, a, 2).contiguous()
+        mask = mask.reshape(b, a, a, 1).contiguous().float()
+
+        scale = torch.tensor([w - 1, h - 1]).to(uv)
+        uv = (uv / scale) * 2 - 1
+        uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+
+        F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
+
+        return F_g2s, uv
+
+    def get_warp_sat2real(self, cam_ref, F_ref, meter_per_pixel):
+        # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
+        # realword: X: south, Y:down, Z: east   origin is set to the ground plane
+
+        B, C, _, satmap_sidelength = F_ref.size()
+
+        # meshgrid the sat pannel
+        i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
+        ii, jj = torch.meshgrid(i, j)  # i:h,j:w
+
+        # uv is coordinate from top/left, v: south, u:east
+        uv = torch.stack([jj, ii], dim=-1).float()  # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+        # sat map from top/left to center coordinate
+        # u0 = v0 = satmap_sidelength // 2
+        # uv_center = uv - torch.tensor(
+        #     [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+        center = cam_ref.c
+        uv_center = uv.repeat(B, 1, 1, 1) - center.unsqueeze(dim=1).unsqueeze(
+            dim=1)  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+
+        # inv equation (1)
+        # meter_per_pixel = 0.07463721  # 0.298548836 / 5 # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512) 0.078302836
+        meter_per_pixel *= 1280 / satmap_sidelength
+        # R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
+        # Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
+
+        XY = uv_center * meter_per_pixel
+        Z = torch.zeros_like(XY[..., 0:1])
+        ones = torch.ones_like(Z)
+        # sat2realwap = torch.cat([XY[:, :, :1], Z, XY[:, :, 1:], ones], dim=-1)  # [sidelength,sidelength,4]
+        XYZ = torch.cat([XY[..., :1], XY[..., 1:], Z], dim=-1)  # [sidelength,sidelength,4]
+        # XYZ = XYZ.unsqueeze(dim=0)
+        # XYZ = XYZ.reshape(B, -1, 3)
+
+        return XYZ
 
     def preject_l1loss(self, opt, p3D, F_ref, F_query, T_gt, camera, mask=None, W_ref_query= None):
         args = (camera, p3D, F_ref, F_query, W_ref_query)
@@ -175,22 +389,197 @@ class TwoViewRefiner2D(BaseModel):
     def loss(self, pred, data):
         if self.conf.optimizer.main_loss == 'rt':
             losses = self.rt_loss(pred, data)
+        elif self.conf.optimizer.main_loss == 'rtreproj':
+            losses = self.rtreproj_loss(pred, data)  # rtreproj
+        elif self.conf.optimizer.main_loss == 'reproj_rgb':
+            losses = self.reproj_rgb_loss(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == 'reproj_fusion':
+            losses = self.reproj_fusion_loss(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == 'reprojx2':
+            losses = self.reproj_lossx2(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == 'metric':
+            losses = self.metric_loss(pred, data)
         else:
             losses = self.reproj_loss(pred, data)  # default = reproj
 
         return losses
 
-    def rt_loss(self, pred, data):
-        # TODO:
+    def reproj_lossx2(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+
+        def project(T_q2r):
+            return cam_ref.world2image(T_q2r * points_3d)
+
+        p2D_r_gt, mask = project(data['T_q2r_gt'])
+        p2D_r_i, mask_i = project(data['T_q2r_init'])
+        mask = (mask & mask_i).float()
+
+        def reprojection_error(T_q2r):
+            p2D_r, _ = project(T_q2r)
+            err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+            err = scaled_barron(1., 2.)(err)[0] / 4
+            err = masked_mean(err, mask, -1)
+            return err
+
+        err_init = reprojection_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        success = None
+        losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] = 0
+
+        # shift1
+        for i, T_opt in enumerate(pred['shift1']):
+            err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            if i > 0:
+                loss = loss * success.float()
+            thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
+            success = err < thresh
+            losses[f'reprojection1_error/{i}'] = err
+            losses['total'] += loss
+
+            # query & reprojection GT error, for query unet back propogate
+            if self.conf.optimizer.pose_loss:
+                losses['pose_loss'] += pred['pose_loss'][i] / num_scales
+                poss_loss_weight = get_weight_from_reproloss(err_init)
+                losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
+                    max=self.conf.clamp_error / num_scales)
+
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            if i > 0:
+                loss = loss * success.float()
+            thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
+            success = err < thresh
+            losses[f'reprojection_error/{i}'] = err
+            losses['total'] += loss
+
+            # query & reprojection GT error, for query unet back propogate
+            if self.conf.optimizer.pose_loss:
+                losses['pose_loss'] += pred['pose_loss'][i] / num_scales
+                poss_loss_weight = get_weight_from_reproloss(err_init)
+                losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
+                    max=self.conf.clamp_error / num_scales)
+
+        losses['reprojection_error'] = err
+        losses['reprojection_error/init'] = err_init
+
+        return losses
+
+    def reproj_rgb_loss(self, pred, data):
+        B = data['ref']['image'].size(0)
+        num_scales = len(self.extractor.scales)
+        losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] = 0
+
+        def reprojection_error(uv, uv_gt):
+            uv_diff = uv - uv_gt
+            uv_diff = uv_diff.reshape(B, -1)
+            uv_mse = torch.sqrt(torch.mean(torch.square(uv_diff), dim=-1))
+            return uv_mse
+
+        uv_gt = project_grd_to_map(data['T_q2r_gt'],
+                                   data['query']['camera'], data['ref']['camera'],
+                                   data['query']['image'], data['ref']['image'],
+                                   meter_per_pixel=0.078302836
+                                   )
+
+        uv_init = project_grd_to_map(data['T_q2r_init'],
+                                     data['query']['camera'], data['ref']['camera'],
+                                     data['query']['image'], data['ref']['image'],
+                                     meter_per_pixel=0.078302836
+                                     )
+
+        rgb_err_init = reprojection_error(uv_init, uv_gt)
+        losses[f'reprojection_rgb_error/init'] = rgb_err_init
+
+        # RGB proj
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            uv = project_grd_to_map(T_opt,
+                                    data['query']['camera'], data['ref']['camera'],
+                                    data['query']['image'], data['ref']['image'],
+                                    meter_per_pixel=0.078302836
+                                    )
+            uv_mse = reprojection_error(uv, uv_gt)
+            rgb_err = uv_mse / num_scales
+            losses[f'reprojection_rgb_error/{i}'] = rgb_err
+            losses['total'] += self.conf.optimizer.coe_rot * rgb_err
+
+        losses['reprojection_error'] = rgb_err
+
+        return losses
+
+
+    def reproj_fusion_loss(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+        B = pred['uv_opt'][0].size(0)
+
+        def project(T_q2r):
+            return cam_ref.world2image(T_q2r * points_3d)
+
+        p2D_r_gt, mask = project(data['T_q2r_gt'])
+        p2D_r_i, mask_i = project(data['T_q2r_init'])
+        mask = (mask & mask_i).float()
+
+        def reprojection_error(T_q2r):
+            p2D_r, _ = project(T_q2r)
+            err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+            err = scaled_barron(1., 2.)(err)[0] / 4
+            err = masked_mean(err, mask, -1)
+            return err
+
+        err_init = reprojection_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        success = None
+        losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] = 0
+
+        # RGB proj
+        for i, uv_opt in enumerate(pred['uv_opt']):
+            uv_diff = uv_opt - pred['uv_gt'][i]
+            uv_diff = uv_diff.reshape(B, -1)
+            uv_mse = torch.sqrt(torch.mean(torch.square(uv_diff), dim=-1))
+            rgb_err = uv_mse / num_scales
+            losses[f'reprojection_rgb_error/{i}'] = rgb_err
+            losses['total'] += self.conf.optimizer.coe_rot * rgb_err
+
+        # LiDAR proj
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            if i > 0:
+                loss = loss * success.float()
+            thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
+            success = err < thresh
+            losses[f'reprojection_error/{i}'] = err
+            losses['total'] += loss
+
+        losses['reprojection_error'] = err
+        losses['reprojection_error/init'] = err_init
+
+        return losses
+
+    def rtreproj_loss(self, pred, data):
         cam_ref = data['ref']['camera']
         points_3d = data['query']['points3D']
         shift_gt = data['shift_gt']
         shift_init = torch.zeros_like(shift_gt)
+        coe = torch.tensor([[self.conf.optimizer.coe_lat,
+                             self.conf.optimizer.coe_lon,
+                             self.conf.optimizer.coe_rot]]).to(shift_init.device)
 
         def shift_error(shift):
-            err = torch.sum((shift - shift_gt) ** 2, dim=-1)
+            err = torch.abs(shift - shift_gt)
             # err = scaled_barron(1., 2.)(err)[0] / 4
-            err = err.mean(dim=0, keepdim=True)
+            # err = err.mean(dim=0, keepdim=True)
             return err
 
         err_init = shift_error(shift_init)
@@ -198,22 +587,68 @@ class TwoViewRefiner2D(BaseModel):
         # success = None
         losses = {'total': 0.}
 
-        for i, shift in enumerate(pred['shiftxyr']):
+        for i, shift in enumerate(pred['shiftxyr1']):
             err = shift_error(shift)
-            loss = err / num_scales
-            # if i > 0:
-            #     loss = loss * success.float()
-            # thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
-            # success = err < thresh
-            losses[f'shift_error/{i}'] = err
+            err_lat = err[:, 0].detach()
+            err_lon = err[:, 1].detach()
+            err_rot = err[:, 2].detach()
+            loss = (coe * err).sum(dim=-1) / num_scales
+
+            losses[f'error/{i}'] = err.mean(dim=-1).detach()
+            losses[f'error_lat/{i}'] = err_lat
+            losses[f'error_lon/{i}'] = err_lon
+            losses[f'error_rot/{i}'] = err_rot
+
             losses['total'] += loss
 
-        losses['shift_error'] = err
-        losses['shift_error/init'] = err_init
+        losses['error'] = err.mean(dim=-1).detach()
+        losses['error_init'] = err_init.mean(dim=-1).detach()
+
+        reproj_losses = self.reproj_loss(pred, data)
+        losses['reprojection_error'] = reproj_losses['reprojection_error']
+        losses['total'] += reproj_losses['reprojection_error']
+
+        return losses
+
+    def rt_loss(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+        shift_gt = data['shift_gt']
+        shift_init = torch.zeros_like(shift_gt)
+        coe = torch.tensor([[self.conf.optimizer.coe_lat,
+                             self.conf.optimizer.coe_lon,
+                             self.conf.optimizer.coe_rot]]).to(shift_init.device)
+
+        def shift_error(shift):
+            err = torch.abs(shift - shift_gt)
+            # err = scaled_barron(1., 2.)(err)[0] / 4
+            # err = err.mean(dim=0, keepdim=True)
+            return err
+
+        err_init = shift_error(shift_init)
+        num_scales = len(self.extractor.scales)
+        losses = {'total': 0.}
+
+        for i, shift in enumerate(pred['shiftxyr']):
+            err = shift_error(shift)
+            err_lat = err[:, 0].detach()
+            err_lon = err[:, 1].detach()
+            err_rot = err[:, 2].detach()
+            loss = (coe * err).sum(dim=-1) / num_scales
+
+            losses[f'error/{i}'] = err.mean(dim=-1).detach()
+            losses[f'error_lat/{i}'] = err_lat
+            losses[f'error_lon/{i}'] = err_lon
+            losses[f'error_rot/{i}'] = err_rot
+
+            losses['total'] += loss
+
+        losses['error'] = err.mean(dim=-1).detach()
+        losses['error_init'] = err_init.mean(dim=-1).detach()
 
         with torch.no_grad():
             reproj_losses = self.reproj_loss(pred, data)
-        losses['reprojection_error'] = reproj_losses['reprojection_error']
+            losses['reprojection_error'] = reproj_losses['reprojection_error'].detach()
 
         return losses
 
@@ -249,6 +684,7 @@ class TwoViewRefiner2D(BaseModel):
                 loss = loss * success.float()
             thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
             success = err < thresh
+
             losses[f'reprojection_error/{i}'] = err
             losses['total'] += loss
 
@@ -262,7 +698,55 @@ class TwoViewRefiner2D(BaseModel):
         losses['reprojection_error'] = err
         losses['reprojection_error/init'] = err_init
 
+        # ## logging ##
+        # with torch.no_grad():
+        #     for i, shiftxyr in enumerate(pred['shiftxyr']):
+        #         shift_error = torch.abs(data['shift_gt'] - shiftxyr)
+        #         losses[f'lat_error/{i}'] = shift_error[..., 0]
+        #         losses[f'lon_error/{i}'] = shift_error[..., 1]
+        #         losses[f'rot_error/{i}'] = shift_error[..., 2]
+        #     if pred['shiftxyr1'] is not None:
+        #         for i, shiftxyr1 in enumerate(pred['shiftxyr1']):
+        #             shift_error = torch.abs(data['shift_gt'] - shiftxyr1)
+        #             losses[f'lat_error1/{i}'] = shift_error[..., 0]
+        #             losses[f'lon_error1/{i}'] = shift_error[..., 1]
+        #             losses[f'rot_error1/{i}'] = shift_error[..., 2]
+
         return losses
+
+    def reprojrt_loss(self, pred, data):
+        pass
+
+
+    def metric_loss(self, pred, data):
+        T_r2q_gt = data['T_q2r_gt'].inv()
+        num_scales = len(self.extractor.scales)
+
+        def scaled_pose_error(T_q2r):
+            err_R, err_t = (T_r2q_gt @ T_q2r).magnitude()
+            err_lat, err_long = (T_r2q_gt @ T_q2r).magnitude_latlong()
+            return err_R, err_t, err_lat, err_long
+
+        metrics = {'total': 0.}
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = scaled_pose_error(T_opt)
+            loss = (err[0] + err[1]).mean(dim=-1, keepdim=True)
+            metrics['total'] += loss / num_scales
+
+            metrics[f'R_error/{i}'], metrics[f't_error/{i}'], metrics[f'lat_error/{i}'], metrics[
+                f'long_error/{i}'] = err
+        metrics['R_error'], metrics['t_error'], metrics['lat_error'], metrics[f'long_error'] = err
+
+        err_init = scaled_pose_error(pred['T_q2r_init'][0])
+        metrics['R_error/init'], metrics['t_error/init'], metrics['lat_error/init'], metrics[
+            f'long_error/init'] = err_init
+
+        # with torch.no_grad():
+        #     reproj_losses = self.reproj_loss(pred, data)
+        #     metrics['reprojection_error'] = reproj_losses['reprojection_error'].detach()
+
+        return metrics
+
 
     def metrics(self, pred, data):
         T_r2q_gt = data['T_q2r_gt'].inv()
