@@ -132,8 +132,12 @@ class NNOptimizer3D(BaseOptimizer):
 
             # # solve the nn optimizer
 
-
-            delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale)
+            if self.nnrefine.args.linearp == 'uv':
+                p2D, _ = camera.world2image(p3D)
+                p2D_ref, _ = camera.world2image(p3D_ref)
+                delta = self.nnrefine(F_query, F_ref2D, p2D, p2D_ref, scale)
+            else:
+                delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale)
 
             if self.conf.pose_from == 'aa':
                 # compute the pose update
@@ -235,6 +239,14 @@ class NNrefinev0_1(nn.Module):
             self.cin = [c+pointc for c in self.cin]
             if self.args.linearp == 'basic' or self.args.linearp == True:
                 self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(16, pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc))
+            elif self.args.linearp == 'uv':
+                self.linearp = nn.Sequential(nn.Linear(2, 16),
                                              # nn.BatchNorm1d(16),
                                              nn.ReLU(inplace=False),
                                              nn.Linear(16, pointc),
