@@ -13,6 +13,8 @@ from pixloc.pixlib.models.base_model import BaseModel
 from pixloc.pixlib.models import get_model
 from pixloc.pixlib.models.utils import masked_mean, merge_confidence_map, extract_keypoints
 from pixloc.pixlib.geometry.losses import scaled_barron
+from pixloc.pixlib.geometry.wrappers import project_grd_to_map
+
 from pixloc.visualization.viz_2d import features_to_RGB,plot_images,plot_keypoints
 from pixloc.pixlib.utils.tensor import map_tensor
 import matplotlib as mpl
@@ -145,65 +147,30 @@ class TwoViewRefiner2D3D(BaseModel):
                 F_q = (F_q - F_q.mean(dim=1, keepdim=True)) / (F_q.std(dim=1, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
-
             # save_path = '/ws/external/visualizations/features'
             # from pixloc.visualization.viz_2d import imsave
-            # from pixloc.pixlib.geometry import Camera, Pose
-            # R_yaw = torch.tensor([[np.cos(0), -np.sin(0), 0], [np.sin(0), np.cos(0), 0], [0, 0, 1]], dtype=torch.float32).cuda()
-            # T = torch.tensor([30., 0., 0], dtype=torch.float32).cuda()
-            # shift = Pose.from_Rt(R_yaw, T)
-            # data['T_q2r_shift'] = shift @ data['T_q2r_gt']
             #
-            # image_g2s, uv = self.project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
-            #                                     data['query']['image'], data['ref']['image'],
-            #                                     meter_per_pixel=0.19575709110371686)
-            # image_g2s_init, uv = self.project_grd_to_map(data['T_q2r_init'], data['query']['camera'].cuda(),
-            #                                          data['query']['image'], data['ref']['image'])
-            #
-            # image_g2s2, uv = self.project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
+            # uv = project_grd_to_map(data['T_q2r_gt'],
+            #                                         data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
             #                                         data['query']['image'], data['ref']['image'],
-            #                                         meter_per_pixel=0.09787854555185843)
-            # image_g2s2_1, uv = self.project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
-            #                                         data['query']['image'], data['ref']['image'],
-            #                                         meter_per_pixel=0.07830283644148675)
-            # image_g2s3, uv = self.project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
-            #                                          data['query']['image'], data['ref']['image'],
-            #                                          meter_per_pixel=0.06525236370123895)
-            # image_g2s4, uv = self.project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
-            #                                          data['query']['image'], data['ref']['image'],
-            #                                          meter_per_pixel=0.048939272775929216)
-            # # image_g2s_grid = self.project_polar_to_grid(uv, data['T_q2r_gt'], data['ref']['camera'].cuda(),
-            # #                                             image_g2s, data['ref']['image'])
+            #                                         meter_per_pixel=0.078302836)
+            # image_g2s = torch.nn.functional.grid_sample(data['query']['image'], uv, mode='bilinear', align_corners=True)
             #
-            # # image_g2s_shift, uv = self.project_grd_to_map(data['T_q2r_shift'], data['query']['camera'].cuda(),
-            # #                                           data['query']['image'], data['ref']['image'])
-            # # image_g2s_cvl, uv =  self.project_grd_to_map2(data['T_q2r_gt'], data['query']['camera'].cuda(),
-            # #                                     data['query']['image'], data['ref']['image'])
-            #
+            # uv_init = project_grd_to_map(data['T_q2r_init'],
+            #                                              data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
+            #                                              data['query']['image'], data['ref']['image'],
+            #                                              meter_per_pixel=0.078302836)
+            # image_g2s_init = torch.nn.functional.grid_sample(data['query']['image'], uv_init, mode='bilinear', align_corners=True)
             #
             # imsave(image_g2s[0], save_path, f'0g2s_gt')
             # imsave(image_g2s_init[0], save_path, f'0g2s_gt_init')
-            # imsave(image_g2s2_1[0], save_path, f'0g2s_gt2.1')
-            # imsave(image_g2s2[0], save_path, f'0g2s_gt2')
-            # imsave(image_g2s3[0], save_path, f'0g2s_gt3')
-            # imsave(image_g2s4[0], save_path, f'0g2s_gt4')
-            # # imsave(image_g2s_grid[0], save_path, f'0g2s_gtgrid')
-            # # imsave(image_g2s_cvl[0], save_path, f'0g2s_gt_cvl')
-            #
-            # imsave(data['ref']['image'][0], save_path, f'0g2s_gt0')
             # imsave(data['query']['image'][0], save_path, f'0grd')
+            # imsave(data['ref']['image'][0], save_path, f'0sat')
             #
             # imsave(image_g2s[1], save_path, f'1g2s_gt')
             # imsave(image_g2s_init[1], save_path, f'1g2s_gt_init')
-            # imsave(image_g2s2[1], save_path, f'1g2s_gt2')
-            # imsave(image_g2s2_1[1], save_path, f'1g2s_gt2.1')
-            # imsave(image_g2s3[1], save_path, f'1g2s_gt3')
-            # imsave(image_g2s4[1], save_path, f'1g2s_gt4')
-            # # imsave(image_g2s_grid[1], save_path, f'1g2s_gtgrid')
-            # # imsave(image_g2s_cvl[1], save_path, f'1g2s_gt_cvl')
-            #
-            # imsave(data['ref']['image'][1], save_path, f'1g2s_gt0')
             # imsave(data['query']['image'][1], save_path, f'1grd')
+            # imsave(data['ref']['image'][1], save_path, f'1sat')
 
             ### Fusion ###
             T_opt, failed, shiftxyr, shiftxyr1 = opt(dict(
@@ -401,6 +368,8 @@ class TwoViewRefiner2D3D(BaseModel):
             losses = self.rtreproj_loss(pred, data)  # rtreproj
         elif self.conf.optimizer.main_loss == 'reproj_fusion':
             losses = self.reproj_fusion_loss(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == 'reproj_fusionv2':
+            losses = self.reproj_fusion_lossv2(pred, data)  # default = reproj
         elif self.conf.optimizer.main_loss == 'reprojx2':
             losses = self.reproj_lossx2(pred, data)  # default = reproj
         elif self.conf.optimizer.main_loss == 'metric':
@@ -409,6 +378,62 @@ class TwoViewRefiner2D3D(BaseModel):
             losses = self.reproj_loss(pred, data)  # default = reproj
 
         return losses
+
+
+    def reproj_rgb_loss(self, pred, data):
+        B = data['ref']['image'].size(0)
+        num_scales = len(self.extractor.scales)
+        losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] = 0
+
+        def reprojection_error(uv, uv_gt):
+            uv_diff = uv - uv_gt
+            uv_diff = uv_diff.reshape(B, -1)
+            uv_mse = torch.sqrt(torch.mean(torch.square(uv_diff), dim=-1))
+            return uv_mse
+
+        uv_gt = project_grd_to_map(data['T_q2r_gt'],
+                                   data['query']['camera'], data['ref']['camera'],
+                                   data['query']['image'], data['ref']['image'],
+                                   meter_per_pixel=0.078302836
+                                   )
+
+        uv_init = project_grd_to_map(data['T_q2r_init'],
+                                     data['query']['camera'], data['ref']['camera'],
+                                     data['query']['image'], data['ref']['image'],
+                                     meter_per_pixel=0.078302836
+                                     )
+
+        rgb_err_init = reprojection_error(uv_init, uv_gt)
+        losses[f'reprojection_rgb_error/init'] = rgb_err_init
+
+        # RGB proj
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            uv = project_grd_to_map(T_opt,
+                                    data['query']['camera'], data['ref']['camera'],
+                                    data['query']['image'], data['ref']['image'],
+                                    meter_per_pixel=0.078302836
+                                    )
+            uv_mse = reprojection_error(uv, uv_gt)
+            rgb_err = uv_mse / num_scales
+            losses[f'reprojection_rgb_error/{i}'] = rgb_err
+            losses['total'] += self.conf.optimizer.coe_rot * rgb_err
+
+        losses['reprojection_rgb_error'] = rgb_err
+
+        return losses
+
+    def reproj_fusion_lossv2(self, pred, data):
+        loss1 = self.reproj_rgb_loss(pred, data)
+        loss2 = self.reproj_loss(pred, data)
+
+        losses = {}
+        losses.update(loss1)
+        losses.update(loss2)
+        losses['total'] = loss1['total'] + loss2['total']
+
+        return loss1
 
     def reproj_lossx2(self, pred, data):
         cam_ref = data['ref']['camera']
@@ -658,20 +683,6 @@ class TwoViewRefiner2D3D(BaseModel):
 
         losses['reprojection_error'] = err
         losses['reprojection_error/init'] = err_init
-
-        # ## logging ##
-        # with torch.no_grad():
-        #     for i, shiftxyr in enumerate(pred['shiftxyr']):
-        #         shift_error = torch.abs(data['shift_gt'] - shiftxyr)
-        #         losses[f'lat_error/{i}'] = shift_error[..., 0]
-        #         losses[f'lon_error/{i}'] = shift_error[..., 1]
-        #         losses[f'rot_error/{i}'] = shift_error[..., 2]
-        #     if pred['shiftxyr1'] is not None:
-        #         for i, shiftxyr1 in enumerate(pred['shiftxyr1']):
-        #             shift_error = torch.abs(data['shift_gt'] - shiftxyr1)
-        #             losses[f'lat_error1/{i}'] = shift_error[..., 0]
-        #             losses[f'lon_error1/{i}'] = shift_error[..., 1]
-        #             losses[f'rot_error1/{i}'] = shift_error[..., 2]
 
         return losses
 

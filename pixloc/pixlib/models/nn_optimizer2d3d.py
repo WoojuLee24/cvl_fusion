@@ -7,6 +7,7 @@ from .base_optimizer import BaseOptimizer
 from ..geometry import Camera, Pose
 from ..geometry.optimization import optimizer_step
 from ..geometry import losses  # noqa
+from pixloc.pixlib.geometry.wrappers import project_grd_to_map
 
 from .pointnet import PointNetEncoder
 from .pointnet2 import PointNetEncoder2
@@ -103,11 +104,14 @@ class NNOptimizer2D3D(BaseOptimizer):
         if mode in [1, 2]:
             # RGB
             for i in range(self.conf.num_iters):
-                F_g2s = self.project_grd_to_map(data, T, cam_q, F_query, F_ref)
+                # F_g2s = self.project_grd_to_map(data, T, cam_q, F_query, F_ref)
+                uv = project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836)
+                F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
 
-                # save_path = '3d_1226'
-                # from pixloc.visualization.viz_2d import imsave
-                # imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
+                save_path = '/ws/external/visualizations/features'
+                from pixloc.visualization.viz_2d import imsave
+                imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
+                imsave(F_ref[0].mean(dim=0, keepdim=True), save_path, f'sat_{scale}')
 
                 # # solve the nn optimizer
                 delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
@@ -126,8 +130,6 @@ class NNOptimizer2D3D(BaseOptimizer):
                 dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
                 dR = dR.view(B, 3, 3)  # shape = [B,3,3]
                 dt = torch.cat([dt, zeros], dim=-1)
-                if mode == 2 and not self.training:
-                    dt = torch.zeros_like(dt)
 
                 T_delta = Pose.from_Rt(dR, dt)
                 T = T_delta @ T
