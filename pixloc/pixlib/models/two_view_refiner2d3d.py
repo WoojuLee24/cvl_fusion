@@ -433,7 +433,7 @@ class TwoViewRefiner2D3D(BaseModel):
         losses.update(loss2)
         losses['total'] = loss1['total'] + loss2['total']
 
-        return loss1
+        return losses
 
     def reproj_lossx2(self, pred, data):
         cam_ref = data['ref']['camera']
