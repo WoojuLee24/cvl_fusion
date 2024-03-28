@@ -393,29 +393,29 @@ class TwoViewRefiner2D3D(BaseModel):
             uv_mse = torch.sqrt(torch.mean(torch.square(uv_diff), dim=-1))
             return uv_mse
 
-        uv_gt = project_grd_to_map(data['T_q2r_gt'],
+        uv_gt, mask_gt = project_grd_to_map(data['T_q2r_gt'],
                                    data['query']['camera'], data['ref']['camera'],
                                    data['query']['image'], data['ref']['image'],
                                    meter_per_pixel=0.078302836
                                    )
 
-        uv_init = project_grd_to_map(data['T_q2r_init'],
+        uv_init, mask_init = project_grd_to_map(data['T_q2r_init'],
                                      data['query']['camera'], data['ref']['camera'],
                                      data['query']['image'], data['ref']['image'],
                                      meter_per_pixel=0.078302836
                                      )
 
-        rgb_err_init = reprojection_error(uv_init, uv_gt)
+        rgb_err_init = reprojection_error(uv_init*mask_init, uv_gt*mask_gt)
         losses[f'reprojection_rgb_error/init'] = rgb_err_init
 
         # RGB proj
         for i, T_opt in enumerate(pred['T_q2r_opt']):
-            uv = project_grd_to_map(T_opt,
+            uv, mask = project_grd_to_map(T_opt,
                                     data['query']['camera'], data['ref']['camera'],
                                     data['query']['image'], data['ref']['image'],
                                     meter_per_pixel=0.078302836
                                     )
-            uv_mse = reprojection_error(uv, uv_gt)
+            uv_mse = reprojection_error(uv*mask, uv_gt*mask_gt)
             rgb_err = uv_mse / num_scales
             losses[f'reprojection_rgb_error/{i}'] = rgb_err
             losses['total'] += self.conf.optimizer.coe_rot * rgb_err

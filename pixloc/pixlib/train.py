@@ -619,7 +619,8 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         lr_scheduler.step()
 
     # test
-    test(model, test_loader, wandb_logger=wandb_logger)
+    # test(model, test_loader, wandb_logger=wandb_logger)
+    test(rank, conf, output_dir, args, wandb_logger=wandb_logger)
 
     logger.info(f'Finished training on process {rank}.')
     if rank == 0 and wandb_logger == None:

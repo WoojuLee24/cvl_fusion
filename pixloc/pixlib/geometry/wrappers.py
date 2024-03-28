@@ -536,7 +536,7 @@ def project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.0783
     uv = (uv / scale) * 2 - 1
     uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
 
-    return uv
+    return uv, mask
 
 def get_warp_sat2real(cam_ref, F_ref, meter_per_pixel):
     # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
