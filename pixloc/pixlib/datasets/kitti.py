@@ -298,6 +298,11 @@ class _Dataset(Dataset):
             if self.conf.sampling == 'random':
                 sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
                 key_points = key_points[sample_idx]
+            elif self.conf.sampling == 'distance':
+                distance = key_points.pow(2).mean(dim=-1)
+                sorted, indices = torch.sort(distance, dim=0, descending=True)
+                sample_idx = indices[:self.conf.max_num_points3D]
+                key_points = key_points[sample_idx]
             elif self.conf.sampling == 'random_fps':
                 rand_idx = torch.randperm(key_points.size(0))
                 key_points = key_points[rand_idx].unsqueeze(dim=0)

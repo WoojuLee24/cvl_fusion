@@ -326,7 +326,7 @@ if __name__ == '__main__':
         'test_batch_size': 2,
         'num_workers': 0,
         'satmap_zoom': 18,
-        "sampling": 'random',
+        "sampling": 'distance', #'random' #
     }
 
     if Ford_dataset:
@@ -354,7 +354,7 @@ if __name__ == '__main__':
     refiner = load_experiment(exp, conf,
                               ckpt='/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
                               ).to(device)
-    save_path = '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
+    save_path = '/ws/external/visualizations/features' # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
