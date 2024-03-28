@@ -108,10 +108,10 @@ class NNOptimizer2D3D(BaseOptimizer):
                 uv = project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836)
                 F_g2s = torch.nn.functional.grid_sample(F_query, uv, mode='bilinear', align_corners=True)
 
-                save_path = '/ws/external/visualizations/features'
-                from pixloc.visualization.viz_2d import imsave
-                imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
-                imsave(F_ref[0].mean(dim=0, keepdim=True), save_path, f'sat_{scale}')
+                # save_path = '/ws/external/visualizations/features'
+                # from pixloc.visualization.viz_2d import imsave
+                # imsave(F_g2s[0].mean(dim=0, keepdim=True), save_path, f'fg2s_{scale}')
+                # imsave(F_ref[0].mean(dim=0, keepdim=True), save_path, f'sat_{scale}')
 
                 # # solve the nn optimizer
                 delta = self.nnrefine_rgb(F_g2s, F_ref, scale)
