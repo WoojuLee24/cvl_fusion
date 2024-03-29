@@ -185,6 +185,8 @@ class TwoViewRefiner3D(BaseModel):
             losses = self.rt_loss(pred, data)
         elif self.conf.optimizer.main_loss == 'metric':
             losses = self.metric_loss(pred, data)
+        elif self.conf.optimizer.main_loss == 'reproj_distance':
+            losses = self.reproj_distance_loss(pred, data)  # default = reproj
         else:
             losses = self.reproj_loss(pred, data)  # default = reproj
 
@@ -286,6 +288,58 @@ class TwoViewRefiner3D(BaseModel):
             losses['reprojection_error'] = reproj_losses['reprojection_error'].detach()
 
         return losses
+
+
+    def reproj_distance_loss(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+        distance = torch.sqrt(points_3d.pow(2).mean(dim=-1))
+        distance = distance / distance[:, :1]
+
+        def project(T_q2r):
+            return cam_ref.world2image(T_q2r * points_3d)
+
+        p2D_r_gt, mask = project(data['T_q2r_gt'])
+        p2D_r_i, mask_i = project(data['T_q2r_init'])
+        mask = (mask & mask_i).float()
+
+        def reprojection_error(T_q2r):
+            p2D_r, _ = project(T_q2r)
+            err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+            err = scaled_barron(1., 2.)(err)[0] / 4
+            err = err * distance
+            err = masked_mean(err, mask, -1)
+            return err
+
+        err_init = reprojection_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        success = None
+        losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] = 0
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            if i > 0:
+                loss = loss * success.float()
+            thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
+            success = err < thresh
+            losses[f'reprojection_error/{i}'] = err
+            losses['total'] += loss
+
+            # query & reprojection GT error, for query unet back propogate
+            if self.conf.optimizer.pose_loss:
+                losses['pose_loss'] += pred['pose_loss'][i] / num_scales
+                poss_loss_weight = get_weight_from_reproloss(err_init)
+                losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
+                    max=self.conf.clamp_error / num_scales)
+
+        losses['reprojection_error'] = err
+        losses['reprojection_error/init'] = err_init
+
+        return losses
+
 
     def reproj_loss(self, pred, data):
         cam_ref = data['ref']['camera']
