@@ -255,9 +255,9 @@ def test(rank, conf, output_dir, args, wandb_logger=None):
 
     # test
     if data_conf.name == 'kitti_voc':
-        test_kitti_voc(dataset, model)
+        test_kitti_voc(dataset, model, wandb_logger)
     else:
-        test_basic(dataset, model)
+        test_basic(dataset, model, wandb_logger)
 
     return
 
