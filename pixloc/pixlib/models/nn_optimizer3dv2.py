@@ -385,6 +385,26 @@ class NNrefinev0_1(nn.Module):
             r = query_feat - ref_feat
             r = torch.cat([r, p3D_feat], dim=-1)
 
+        elif self.args.version == 2.1:
+            if self.args.linearp != 'none':
+                p3D_ref = p3D_ref.contiguous()
+                p3D_ref_feat = self.linearp(p3D_ref)
+            else:
+                p3D_ref_feat = p3D_ref.contiguous()
+
+            r = ref_feat
+            r = torch.cat([r, p3D_ref_feat], dim=-1)
+
+        elif self.args.version == 2.2:
+            if self.args.linearp != 'none':
+                p3D_ref = p3D_ref.contiguous()
+                p3D_ref_feat = self.linearp(p3D_ref)
+            else:
+                p3D_ref_feat = p3D_ref.contiguous()
+
+            r = ref_feat - query_feat
+            r = torch.cat([r, p3D_ref_feat], dim=-1)
+
         B, N, C = r.shape
         if 2-scale == 0:
             x = self.linear0(r)
