@@ -20,7 +20,7 @@ import random
 import cv2
 from pixloc.pixlib.geometry import Camera, Pose
 from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
-from pixloc.pixlib.models.pointnet2 import farthest_point_sample
+# from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
 
 root_dir = "/ws/data/kitti-vo" # your kitti dir

@@ -260,9 +260,9 @@ class NNrefinev0_1(nn.Module):
                                              nn.Linear(1088, pointc)
                                              )
             elif self.args.linearp == 'pointnet1.1':
-                self.linearp = nn.Sequential(PointNetEncoder1_1(),  # (B, N, 1088)
-                                             nn.ReLU(inplace=False),
-                                             nn.Linear(1088, pointc)
+                self.linearp = nn.Sequential(PointNetEncoder1_1(),  # (B, N, 128)
+                                             # nn.ReLU(inplace=False),
+                                             # nn.Linear(1088, pointc)
                                              )
             elif self.args.linearp in ['pointnet2', 'pointnet2_msg']:
                 if self.args.linearp == 'pointnet2':
@@ -291,8 +291,11 @@ class NNrefinev0_1(nn.Module):
 
 
         # channel projection
+        if self.args.version == 1.1:
+            self.cin = [c+3 for c in self.cin]
         if self.args.input in ['concat']:
             self.cin = [c*2 for c in self.cin]
+
 
         if self.args.pose_from == 'aa':
             self.yout = 6
@@ -371,6 +374,22 @@ class NNrefinev0_1(nn.Module):
 
 
             if self.args.input == 'concat':     # default
+                r = torch.cat([query_feat, ref_feat], dim=-1)
+            else:
+                r = query_feat - ref_feat  # [B, C, H, W]
+
+        elif self.args.version == 1.1:
+            p3D_query = p3D_query.contiguous()
+            p3D_query_feat = self.linearp(p3D_query)
+            p3D_query_feat = torch.cat([p3D_query_feat, p3D_query], dim=-1)
+            p3D_ref = p3D_ref.contiguous()
+            p3D_ref_feat = self.linearp(p3D_ref)
+            p3D_ref_feat = torch.cat([p3D_ref_feat, p3D_query], dim=-1)
+
+            query_feat = torch.cat([query_feat, p3D_query_feat], dim=2)
+            ref_feat = torch.cat([ref_feat, p3D_ref_feat], dim=2)
+
+            if self.args.input == 'concat':  # default
                 r = torch.cat([query_feat, ref_feat], dim=-1)
             else:
                 r = query_feat - ref_feat  # [B, C, H, W]
