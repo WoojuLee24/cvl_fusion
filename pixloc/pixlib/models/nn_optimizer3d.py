@@ -245,6 +245,19 @@ class NNrefinev0_1(nn.Module):
                                              # nn.BatchNorm1d(pointc),
                                              nn.ReLU(inplace=False),
                                              nn.Linear(pointc, pointc))
+            if self.args.linearp == 'basic2':
+                self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(16, pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc)
+                                             )
             elif self.args.linearp == 'uv':
                 self.linearp = nn.Sequential(nn.Linear(2, 16),
                                              # nn.BatchNorm1d(16),
