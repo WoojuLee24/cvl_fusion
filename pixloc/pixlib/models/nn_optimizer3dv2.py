@@ -9,7 +9,8 @@ from ..geometry.optimization import optimizer_step
 from ..geometry import losses  # noqa
 
 from .pointnet import PointNetEncoder, PointNetEncoder1_1
-from .pointnet2 import PointNetEncoder2, PointNetEncoder2_1
+from .pointnet2 import PointNetEncoder2
+from .pointnet2_1 import PointNetEncoder2_1
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class NNOptimizer3D(BaseOptimizer):
         range=False, # 'none',   # 'r', 't', 'rt'
         cascade=False,
         linearp='basic', # 'none', 'basic', 'pointnet', 'pointnet2', 'pointnet2_msg'
+        radius=0.2,
         version=0.1,
         attention=False,
         mask=True,
@@ -133,12 +135,12 @@ class NNOptimizer3D(BaseOptimizer):
 
             # # solve the nn optimizer
 
-            if self.nnrefine.args.linearp == 'uv':
-                p2D, _ = camera.world2image(p3D)
-                p2D_ref, _ = camera.world2image(p3D_ref)
-                delta = self.nnrefine(F_query, F_ref2D, p2D, p2D_ref, scale)
-            else:
-                delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale)
+            # if self.nnrefine.args.linearp == 'uv':
+            #     p2D, _ = camera.world2image(p3D)
+            #     p2D_ref, _ = camera.world2image(p3D_ref)
+            #     delta = self.nnrefine(F_query, F_ref2D, p2D, p2D_ref, scale)
+            # else:
+            delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale)
 
             if self.conf.pose_from == 'aa':
                 # compute the pose update
@@ -277,15 +279,14 @@ class NNrefinev0_1(nn.Module):
                                              )
             elif self.args.linearp in ['pointnet2.1', 'pointnet2.1_msg']:
                 if self.args.linearp == 'pointnet2.1':
-                    linearp_property = [0.2, 32, [64,64,128]] # radius, nsample, mlp
+                    linearp_property = [self.args.radius, 32, [16, 16, 32]] # [0.2, 32, [64,64,128]] # radius, nsample, mlp
                     output_dim = linearp_property[2][-1]
                 elif self.args.linearp == 'pointnet2.1_msg':
                     linearp_property = [[0.1, 0.2, 0.4], [16, 32, 128], [[32, 32, 64], [64, 64, 128], [64, 96, 128]]] # radius_list, nsample_list, mlp_list
                     output_dim = torch.sum(torch.tensor(linearp_property[2], requires_grad=False), dim=0)[-1]
-                self.linearp = nn.Sequential(PointNetEncoder2_1(self.args.max_num_points3D, linearp_property[0], linearp_property[1], linearp_property[2], self.args.linearp), # (B, N, output_dim)
-                                             nn.ReLU(inplace=False),
-                                             nn.Linear(output_dim, pointc)
-                                             )
+                self.linearp = PointNetEncoder2_1(self.args.max_num_points3D,
+                                                  linearp_property[0], linearp_property[1], linearp_property[2], self.args.linearp) # (B, N, output_dim)
+
         else:
             self.cin = [c+3 for c in self.cin]
 
@@ -337,16 +338,6 @@ class NNrefinev0_1(nn.Module):
                                      nn.Linear(32, self.yout),
                                      nn.Tanh())
 
-        # elif self.args.pool == 'aap2':
-        #     self.pool = nn.AdaptiveAvgPool1d(4096 // 64)
-        #     self.mapping = nn.Sequential(nn.ReLU(inplace=True),
-        #                                  nn.Linear(4096 // 64, 1024),
-        #                                  nn.ReLU(inplace=True),
-        #                                  nn.Linear(1024, 32),
-        #                                  nn.ReLU(inplace=True),
-        #                                  nn.Linear(32, 3),
-        #                                  nn.Tanh())
-
 
     def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale):
 
@@ -371,7 +362,6 @@ class NNrefinev0_1(nn.Module):
 
             query_feat = torch.cat([query_feat, p3D_query_feat], dim=2)
             ref_feat = torch.cat([ref_feat, p3D_ref_feat], dim=2)
-
 
             if self.args.input == 'concat':     # default
                 r = torch.cat([query_feat, ref_feat], dim=-1)

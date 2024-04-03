@@ -20,7 +20,7 @@ import random
 import cv2
 from pixloc.pixlib.geometry import Camera, Pose
 from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
-# from pixloc.pixlib.models.pointnet2 import farthest_point_sample
+from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
 
 root_dir = "/ws/data/kitti-vo" # your kitti dir
@@ -43,6 +43,7 @@ class Kitti(BaseDataset):
     default_conf = {
         'two_view': True,
         'max_num_points3D': 5000,
+        'center_num_points3D': 1024,
         'force_num_points3D': False,
         'rot_range': 15,
         'trans_range': 5,
@@ -303,18 +304,22 @@ class _Dataset(Dataset):
                 sorted, indices = torch.sort(distance, dim=0, descending=True)
                 sample_idx = indices[:self.conf.max_num_points3D]
                 key_points = key_points[sample_idx]
-            elif self.conf.sampling == 'random_fps':
-                rand_idx = torch.randperm(key_points.size(0))
-                key_points = key_points[rand_idx].unsqueeze(dim=0)
-                points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
-                key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
-                key_points = key_points.squeeze(dim=0)
+            # elif self.conf.sampling == 'random_fps':
+            #     rand_idx = torch.randperm(key_points.size(0))
+            #     key_points = key_points[rand_idx].unsqueeze(dim=0)
+            #     points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
+            #     key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
+            #     key_points = key_points.squeeze(dim=0)
             elif self.conf.sampling == 'fps':
+                sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
+                key_points = key_points[sample_idx]
                 key_points = key_points.unsqueeze(dim=0)
-                points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
                 # key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
-                centroid_idx = farthest_point_sample(key_points, self.conf.max_num_points3D)
-                key_points = key_points[centroid_idx].squeeze(dim=0)
+                centroid_idx = farthest_point_sample(key_points, self.conf.center_num_points3D)
+                key_points = key_points.squeeze()
+                centroid_idx = centroid_idx.squeeze()
+                grd_image['centroid_idx'] = centroid_idx
+                # key_points = key_points[centroid_idx].squeeze(dim=0)
                 # key_points = key_points.squeeze(dim=0)
         elif num_diff > 0 and self.conf.force_num_points3D:
             point_add = torch.ones((num_diff, 3)) * key_points[-1]
