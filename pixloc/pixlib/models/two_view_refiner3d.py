@@ -52,6 +52,8 @@ class TwoViewRefiner3D(BaseModel):
             'coe_rot': 1.,
             'cascade': False,
             'attention': False,
+            'sampling': 'none',
+            'iter_num_points3D': 1024
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -106,22 +108,30 @@ class TwoViewRefiner3D(BaseModel):
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
         for i in reversed(range(len(self.extractor.scales))):
+            if self.conf.optimizer.sampling == 'random':
+                B, N, _ = p3D_query.size()
+                idx = []
+                for b in range(B):
+                    sample_idx = torch.randperm(N).to(p3D_query.device)
+                    idx.append(sample_idx)
+                idx = torch.stack(idx, dim=0).to(p3D_query.device)
+                from pixloc.pixlib.models.pointnet2 import index_points
+                p3D_query = index_points(p3D_query, idx)
+                p3D_query = p3D_query[:, :self.conf.iter_num_points3D]
+
             if self.conf.optimizer.attention:
                 F_ref = pred['ref']['feature_maps'][i] * pred['ref']['confidences'][i]
+                F_q = pred['query']['feature_maps'][i] * pred['query']['confidences'][i]
             else:
                 F_ref = pred['ref']['feature_maps'][i]
+                F_q = pred['query']['feature_maps'][i]
             cam_ref = pred['ref']['camera_pyr'][i]
+            cam_q = pred['query']['camera_pyr'][i]
 
             if self.conf.duplicate_optimizer_per_scale:
                 opt = self.optimizer[i]
             else:
                 opt = self.optimizer
-
-            if self.conf.optimizer.attention:
-                F_q = pred['query']['feature_maps'][i] * pred['query']['confidences'][i]
-            else:
-                F_q = pred['query']['feature_maps'][i]
-            cam_q = pred['query']['camera_pyr'][i]
 
             p2D_query, visible = cam_q.world2image(data['query']['T_w2cam']*p3D_query)
             F_q, mask, _ = opt.interpolator(F_q, p2D_query)
@@ -139,6 +149,7 @@ class TwoViewRefiner3D(BaseModel):
             elif self.conf.normalize_features == 'zsn':
                 F_q = (F_q - F_q.mean(dim=2, keepdim=True)) / (F_q.std(dim=2, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
+
 
             T_opt, failed, shiftxyr = opt(dict(
                 p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,

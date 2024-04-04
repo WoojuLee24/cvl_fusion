@@ -9,7 +9,8 @@ from ..geometry.optimization import optimizer_step
 from ..geometry import losses  # noqa
 
 from .pointnet import PointNetEncoder, PointNetEncoder1_1
-from .pointnet2 import PointNetEncoder2, PointNetEncoder2_1
+from .pointnet2 import PointNetEncoder2
+from .pointnet2_1 import PointNetEncoder2_1
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class NNOptimizer3D(BaseOptimizer):
         mask=False,
         input_dim=[128, 128, 32],  # [32, 128, 128],
         normalize_geometry='none',
+        normalize_geometry_feature='none',
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -101,6 +103,10 @@ class NNOptimizer3D(BaseOptimizer):
                 p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
             elif self.conf.normalize_geometry == 'l2':
                 p3D = torch.nn.functional.normalize(p3D, dim=-1)
+            elif self.conf.normalize_geometry == 'zsn2':
+                mean = torch.tensor([-0.1917,  0.9250, 15.6600]).to(p3D.device).repeat(1, 1, 1)
+                std = torch.tensor([6.9589,  0.8642, 11.5166]).to(p3D.device).repeat(1, 1, 1)
+                p3D = (p3D - mean) / (std + 1e-6)
 
             p3D_ref = T * p3D
 
@@ -301,7 +307,6 @@ class NNrefinev0_1(nn.Module):
         else:
             self.cin = [c+3 for c in self.cin]
 
-
         # channel projection
         if self.args.input in ['concat']:
             self.cin = [c*2 for c in self.cin]
@@ -338,6 +343,17 @@ class NNrefinev0_1(nn.Module):
                                          )
             self.cout *= 16
 
+
+        elif self.args.pool == 'embed_iter_aap2':
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.iter_num_points3D, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
         self.mapping = nn.Sequential(nn.ReLU(inplace=False),
                                      nn.Linear(self.cout, 128),
                                      nn.ReLU(inplace=False),
@@ -362,11 +378,11 @@ class NNrefinev0_1(nn.Module):
         B, N, C = query_feat.size()
 
         # normalization
-        if self.args.norm == 'zsn':
-            query_feat = (query_feat - query_feat.mean()) / (query_feat.std() + 1e-6)
-            ref_feat = (ref_feat - ref_feat.mean()) / (ref_feat.std() + 1e-6)
-        else:
-            pass
+        # if self.args.norm == 'zsn':
+        #     query_feat = (query_feat - query_feat.mean()) / (query_feat.std() + 1e-6)
+        #     ref_feat = (ref_feat - ref_feat.mean()) / (ref_feat.std() + 1e-6)
+        # else:
+        #     pass
 
         if self.args.linearp != 'none':
             p3D_query = p3D_query.contiguous()
@@ -376,6 +392,11 @@ class NNrefinev0_1(nn.Module):
         else:
             p3D_query_feat = p3D_query.contiguous()
             p3D_ref_feat = p3D_ref.contiguous()
+
+        # normalization
+        if self.args.normalize_geometry_feature == 'l2':
+            p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
+            p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
 
         query_feat = torch.cat([query_feat, p3D_query_feat], dim=2)
         ref_feat = torch.cat([ref_feat, p3D_ref_feat], dim=2)

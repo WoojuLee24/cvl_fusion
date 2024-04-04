@@ -310,7 +310,7 @@ class _Dataset(Dataset):
             #     points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
             #     key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
             #     key_points = key_points.squeeze(dim=0)
-            elif self.conf.sampling == 'fps':
+            elif self.conf.sampling == 'random_fps':
                 sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
                 key_points = key_points[sample_idx]
                 key_points = key_points.unsqueeze(dim=0)
@@ -318,6 +318,15 @@ class _Dataset(Dataset):
                 centroid_idx = farthest_point_sample(key_points, self.conf.center_num_points3D)
                 key_points = key_points.squeeze()
                 centroid_idx = centroid_idx.squeeze()
+                grd_image['centroid_idx'] = centroid_idx
+                # key_points = key_points[centroid_idx].squeeze(dim=0)
+                # key_points = key_points.squeeze(dim=0)
+            elif self.conf.sampling == 'fps':
+                key_points = key_points.unsqueeze(dim=0)
+                centroid_idx = farthest_point_sample(key_points, self.conf.max_num_points3D) # self.conf.center_num_points3D
+                key_points = key_points.squeeze()
+                centroid_idx = centroid_idx.squeeze()
+                key_points = key_points[centroid_idx]
                 grd_image['centroid_idx'] = centroid_idx
                 # key_points = key_points[centroid_idx].squeeze(dim=0)
                 # key_points = key_points.squeeze(dim=0)
