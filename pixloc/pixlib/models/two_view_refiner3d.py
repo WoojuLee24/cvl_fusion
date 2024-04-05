@@ -200,6 +200,8 @@ class TwoViewRefiner3D(BaseModel):
             losses = self.reproj_distance_loss(pred, data)  # default = reproj
         elif self.conf.optimizer.main_loss == 'reproj3d':
             losses = self.reproj3d_loss(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == 'reproj2':
+            losses = self.reproj_loss2(pred, data)  # default = reproj
         else:
             losses = self.reproj_loss(pred, data)  # default = reproj
 
@@ -400,6 +402,42 @@ class TwoViewRefiner3D(BaseModel):
         losses['reprojection_error/init'] = err_init
 
         return losses
+
+
+    def reproj_loss2(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+
+        def project(T_q2r):
+            return cam_ref.world2image(T_q2r * points_3d)
+
+        p2D_r_gt, mask = project(data['T_q2r_gt'])
+        p2D_r_i, mask_i = project(data['T_q2r_init'])
+        mask = (mask & mask_i).float()
+
+        def reprojection_error(T_q2r):
+            p2D_r, _ = project(T_q2r)
+            err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+            # err = scaled_barron(1., 2.)(err)[0] / 4
+            err = masked_mean(err, mask, -1)
+            return err
+
+        err_init = reprojection_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        losses = {'total': 0.}
+
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            losses[f'reprojection_error/{i}'] = err
+            losses['total'] += loss
+
+        losses['reprojection_error'] = err
+        losses['reprojection_error/init'] = err_init
+
+        return losses
+
 
     def reproj3d_loss(self, pred, data):
         cam_ref = data['ref']['camera']
