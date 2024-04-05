@@ -313,8 +313,9 @@ def linear_annealing(init, fin, step, start_step=2000, end_step=6000):
 def training(rank, conf, output_dir, args, wandb_logger=None):
     if args.restore:
         logger.info(f'Restoring from previous training of {args.experiment}')
-        init_cp = get_last_checkpoint(args.experiment, allow_interrupted=False)
-        logger.info(f'Restoring from checkpoint {init_cp.name}')
+        # init_cp = get_last_checkpoint(args.experiment, allow_interrupted=False)
+        # logger.info(f'Restoring from checkpoint {init_cp.name}')
+        init_cp = os.path.join(output_dir, 'checkpoint_last.tar')
         init_cp = torch.load(str(init_cp), map_location='cpu')
         conf = OmegaConf.merge(OmegaConf.create(init_cp['conf']), conf)
         epoch = init_cp['epoch'] + 1
