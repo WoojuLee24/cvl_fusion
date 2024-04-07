@@ -58,6 +58,7 @@ class NNOptimizer3D(BaseOptimizer):
         mask=True,
         input_dim=[128, 128, 32],  # [32, 128, 128],
         normalize_geometry='none',
+        normalize_geometry_feature='none',
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -104,6 +105,10 @@ class NNOptimizer3D(BaseOptimizer):
                 p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
             elif self.conf.normalize_geometry == 'l2':
                 p3D = torch.nn.functional.normalize(p3D, dim=-1)
+            elif self.conf.normalize_geometry == 'zsn2':
+                mean = torch.tensor([-0.1917,  0.9250, 15.6600]).to(p3D.device).repeat(1, 1, 1)
+                std = torch.tensor([6.9589,  0.8642, 11.5166]).to(p3D.device).repeat(1, 1, 1)
+                p3D = (p3D - mean) / (std + 1e-6)
 
             p3D_ref = T * p3D
 
@@ -248,6 +253,15 @@ class NNrefinev0_1(nn.Module):
                                              # nn.BatchNorm1d(pointc),
                                              nn.ReLU(inplace=False),
                                              nn.Linear(pointc, pointc))
+            elif self.args.linearp == 'basicv2.3':
+                self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(16, pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc))
+                self.linearp0 = nn.Linear(pointc, 32)
             elif self.args.linearp == 'uv':
                 self.linearp = nn.Sequential(nn.Linear(2, 16),
                                              # nn.BatchNorm1d(16),
@@ -294,6 +308,8 @@ class NNrefinev0_1(nn.Module):
         # channel projection
         if self.args.version == 1.1:
             self.cin = [c+3 for c in self.cin]
+        elif self.args.version == 2.3:
+            self.cin = [128, 128, 32]
         if self.args.input in ['concat']:
             self.cin = [c*2 for c in self.cin]
 
@@ -360,6 +376,11 @@ class NNrefinev0_1(nn.Module):
                 p3D_query_feat = p3D_query.contiguous()
                 p3D_ref_feat = p3D_ref.contiguous()
 
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
+                p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+
             query_feat = torch.cat([query_feat, p3D_query_feat], dim=2)
             ref_feat = torch.cat([ref_feat, p3D_ref_feat], dim=2)
 
@@ -384,12 +405,36 @@ class NNrefinev0_1(nn.Module):
             else:
                 r = query_feat - ref_feat  # [B, C, H, W]
 
+        elif self.args.version == 1.2:
+            if self.args.linearp != 'none':
+                p3D_query = p3D_query.contiguous()
+                p3D_query_feat = self.linearp(p3D_query)
+                p3D_ref = p3D_ref.contiguous()
+                p3D_ref_feat = self.linearp(p3D_ref)
+            else:
+                p3D_query_feat = p3D_query.contiguous()
+                p3D_ref_feat = p3D_ref.contiguous()
+
+            query_feat = torch.cat([query_feat, p3D_query_feat], dim=2)
+            ref_feat = torch.cat([ref_feat, p3D_ref_feat], dim=2)
+            # added
+            r0 = ref_feat - p3D_ref_feat
+
+            if self.args.input == 'concat':     # default
+                r = torch.cat([query_feat, ref_feat], dim=-1)
+            else:
+                r = query_feat - ref_feat  # [B, C, H, W]
+
         elif self.args.version == 2.0:
             if self.args.linearp != 'none':
                 p3D_query = p3D_query.contiguous()
                 p3D_feat = self.linearp(p3D_query)
             else:
                 p3D_feat = p3D_query.contiguous()
+
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_feat = torch.nn.functional.normalize(p3D_feat, dim=-1)
 
             r = query_feat - ref_feat
             r = torch.cat([r, p3D_feat], dim=-1)
@@ -401,6 +446,10 @@ class NNrefinev0_1(nn.Module):
             else:
                 p3D_ref_feat = p3D_ref.contiguous()
 
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+
             r = ref_feat
             r = torch.cat([r, p3D_ref_feat], dim=-1)
 
@@ -411,8 +460,28 @@ class NNrefinev0_1(nn.Module):
             else:
                 p3D_ref_feat = p3D_ref.contiguous()
 
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+
             r = ref_feat - query_feat
             r = torch.cat([r, p3D_ref_feat], dim=-1)
+
+        elif self.args.version == 2.3:
+            if self.args.linearp != 'none':
+                p3D_ref = p3D_ref.contiguous()
+                p3D_ref_feat = self.linearp(p3D_ref)
+                if scale == 0:
+                    p3D_ref_feat = self.linearp0(p3D_ref_feat)
+            else:
+                p3D_ref_feat = p3D_ref.contiguous()
+
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+
+            r = ref_feat - p3D_ref_feat
+            # r = torch.cat([r, r], dim=-1)
 
         B, N, C = r.shape
         if 2-scale == 0:
