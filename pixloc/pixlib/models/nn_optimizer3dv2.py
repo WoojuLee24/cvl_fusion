@@ -240,6 +240,8 @@ class NNrefinev0_1(nn.Module):
         self.args = args
 
         self.cin = self.args.input_dim  # [64, 32, 16] # [128, 128, 32]
+        if self.args.version == 2.4:
+            self.cin = [128, 128, 128]
         self.cout = 128
         pointc = 128
 
@@ -262,6 +264,29 @@ class NNrefinev0_1(nn.Module):
                                              nn.ReLU(inplace=False),
                                              nn.Linear(pointc, pointc))
                 self.linearp0 = nn.Linear(pointc, 32)
+            elif self.args.linearp == 'basicv2.4':
+                self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(16, pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc))
+                self.linearp0 = nn.Sequential(nn.Linear(3, 16),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(16, pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc))
+                self.linearp_r2 = nn.Sequential(nn.Linear(2 * pointc, 2 * pointc),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(2 * pointc, 2 * pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(2 * pointc, 2 * pointc))
+                self.linear_rgb = nn.Linear(32, 128)
             elif self.args.linearp == 'uv':
                 self.linearp = nn.Sequential(nn.Linear(2, 16),
                                              # nn.BatchNorm1d(16),
@@ -310,6 +335,8 @@ class NNrefinev0_1(nn.Module):
             self.cin = [c+3 for c in self.cin]
         elif self.args.version == 2.3:
             self.cin = [128, 128, 32]
+        elif self.args.version == 2.4:
+            self.cin = [c*2 for c in self.cin]
         if self.args.input in ['concat']:
             self.cin = [c*2 for c in self.cin]
 
@@ -482,6 +509,38 @@ class NNrefinev0_1(nn.Module):
 
             r = ref_feat - p3D_ref_feat
             # r = torch.cat([r, r], dim=-1)
+
+        elif self.args.version == 2.4:
+            if scale == 0:
+                query_feat = self.linear_rgb(query_feat)    # 32 -> 128
+                ref_feat = self.linear_rgb(ref_feat)    # 32 -> 128
+                query_feat = torch.nn.functional.normalize(query_feat, dim=-1)
+                ref_feat = torch.nn.functional.normalize(ref_feat, dim=-1)
+            p3D_query_feat = self.linearp(p3D_query.contiguous())
+            p3D_ref_feat = self.linearp(p3D_ref.contiguous())
+
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
+                p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+
+            query_rgb_feat = torch.cat([query_feat, p3D_query_feat], dim=2)
+            ref_rgb_feat = torch.cat([ref_feat, p3D_ref_feat], dim=2)
+
+            r1 = query_rgb_feat - ref_rgb_feat  # [B, N, 2C]
+
+            p3D_ref = p3D_ref.contiguous()
+            p3D_ref_feat0 = self.linearp0(p3D_ref)
+
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_ref_feat0 = torch.nn.functional.normalize(p3D_ref_feat0, dim=-1)
+
+            # ref_feat = ref_feat # linear projection required for geometric ref feat??
+            r2 = torch.cat([ref_feat, p3D_ref_feat0], dim=-1)   # [B, N, 2C]
+            r2 = self.linearp_r2(r2)    # [B, N, 2C]
+
+            r = torch.cat([r1, r2], dim=-1)     # [B, N, 4C]
 
         B, N, C = r.shape
         if 2-scale == 0:
