@@ -240,7 +240,7 @@ class NNrefinev0_1(nn.Module):
         self.args = args
 
         self.cin = self.args.input_dim  # [64, 32, 16] # [128, 128, 32]
-        if self.args.version == 2.4:
+        if self.args.version in [2.4, 2.5]:
             self.cin = [128, 128, 128]
         self.cout = 128
         pointc = 128
@@ -286,6 +286,25 @@ class NNrefinev0_1(nn.Module):
                                              # nn.BatchNorm1d(pointc),
                                              nn.ReLU(inplace=False),
                                              nn.Linear(2 * pointc, 2 * pointc))
+                self.linear_rgb = nn.Linear(32, 128)
+            elif self.args.linearp == 'basicv2.5':
+                self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(16, pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc)
+                                             )
+                self.linearp_geo = nn.Sequential(nn.Linear(pointc, pointc),
+                                             # nn.BatchNorm1d(16),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc),
+                                             # nn.BatchNorm1d(pointc),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(pointc, pointc))
                 self.linear_rgb = nn.Linear(32, 128)
             elif self.args.linearp == 'uv':
                 self.linearp = nn.Sequential(nn.Linear(2, 16),
@@ -541,6 +560,28 @@ class NNrefinev0_1(nn.Module):
             r2 = self.linearp_r2(r2)    # [B, N, 2C]
 
             r = torch.cat([r1, r2], dim=-1)     # [B, N, 4C]
+
+        elif self.args.version == 2.5:
+            if scale == 0:
+                query_feat = self.linear_rgb(query_feat)    # 32 -> 128
+                ref_feat = self.linear_rgb(ref_feat)    # 32 -> 128
+                query_feat = torch.nn.functional.normalize(query_feat, dim=-1)
+                ref_feat = torch.nn.functional.normalize(ref_feat, dim=-1)
+
+            p3D_q2r = p3D_ref.contiguous()
+            p3D_q2r_feat = self.linearp(p3D_q2r)    # [B, N, C]
+            ref_geo_feat = self.linearp_geo(ref_feat)
+
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_q2r_feat = torch.nn.functional.normalize(p3D_q2r_feat, dim=-1)
+                ref_geo_feat = torch.nn.functional.normalize(ref_geo_feat, dim=-1)
+
+            query_q2r_feat = torch.cat([query_feat, p3D_q2r_feat], dim=-1)
+
+            ref_feat = torch.cat([ref_feat, ref_geo_feat], dim=-1)
+
+            r = query_q2r_feat - ref_feat
 
         B, N, C = r.shape
         if 2-scale == 0:
