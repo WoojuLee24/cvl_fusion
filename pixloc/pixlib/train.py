@@ -39,7 +39,7 @@ default_train_conf = {
     'opt_regexp': None,  # regular expression to filter parameters to optimize
     'optimizer_options': {},  # optional arguments passed to the optimizer
     'lr': 0.0001,  # learning rate
-    'lr_schedule': {'type': None, 'start': 0, 'exp_div_10': 0}, #
+    'lr_schedule': {'type': None, 'start': 0, 'exp_div_10': 0, 'gamma': 0.5}, #
     'lr_scaling': [(100, ['dampingnet.const'])],
     'eval_every_iter': 1000,  # interval for evaluation on the validation set
     'log_every_iter': 200,  # interval for logging the loss to the console
@@ -115,6 +115,7 @@ def test_basic(dataset, model, wandb_logger=None):
     test_loader = dataset.get_data_loader('test', shuffle=False)
 
     model.eval()
+    results = {}
     errR = torch.tensor([])
     errlong = torch.tensor([])
     errlat = torch.tensor([])
@@ -129,6 +130,16 @@ def test_basic(dataset, model, wandb_logger=None):
         errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
 
         del pred_, data_
+
+    #     for k, v in metrics.items():
+    #         if k not in results:
+    #             results[k] = AverageMetric()
+    #             if k in conf.median_metrics:
+    #                 results[k + '_median'] = MedianMetric()
+    #         results[k].update(v)
+    #         if k in conf.median_metrics:
+    #             results[k + '_median'].update(v)
+    # results = {k: results[k].compute() for k in results}
 
     logger.info(f'acc of lat<=0.25:{torch.sum(errlat <= 0.25) / errlat.size(0)}')
     logger.info(f'acc of lat<=0.5:{torch.sum(errlat <= 0.5) / errlat.size(0)}')
@@ -169,7 +180,6 @@ def test_basic(dataset, model, wandb_logger=None):
         wandb_logger.wandb.log({'test/mean errR': torch.mean(errR)})
         wandb_logger.wandb.log({'test/var errR': torch.var(errR)})
         wandb_logger.wandb.log({'test/median errR': torch.median(errR)})
-
 
     return
 
@@ -342,20 +352,11 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
 
     OmegaConf.set_struct(conf, True)  # prevent access to unknown entries
     set_seed(conf.train.seed)
-    # if rank == 0:
-    #     if args.wandb:
-    #         wandb_config = dict(project="vpr", entity='kaist-url-ai28', name=args.experiment)
-    #         wandb_logger = WandbLogger(wandb_config, args)
-    #         wandb_logger.before_run()
-    #     else:
-    #         writer = SummaryWriter(log_dir=str(output_dir))
-    #         wandb_logger = WandbLogger(None)
 
     if rank == 0:
         if wandb_logger==None:
             writer = SummaryWriter(log_dir=str(output_dir))
             wandb_logger = WandbLogger(None)
-
 
     data_conf = copy.deepcopy(conf.data)
     if args.distributed:
@@ -473,7 +474,8 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         lr_scheduler = torch.optim.lr_scheduler.MultiplicativeLR(optimizer, lr_fn)
     elif conf.train.lr_schedule.type == 'step':
         total_epoch = conf.train.epochs
-        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[total_epoch//2, total_epoch*3//4], gamma=0.5)
+        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[total_epoch//2, total_epoch*3//4],
+                                                            gamma=conf.train.lr_schedule.gamma)
     elif conf.train.lr_schedule.type == 'lambda':
         total_epoch = conf.train.epochs
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: ((1.0 - float(epoch) / total_epoch)**1.0))
@@ -550,7 +552,6 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                         epoch, it, ', '.join(str_losses)))
 
                     if args.wandb:
-                        # wandb_logger.log_evaluate(losses)
                         for k, v in losses.items():
                             k = 'training/' + k
                             wandb_logger.wandb.log({k: v})
@@ -565,7 +566,9 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
 
             results = 0
             if (stop or it == (len(train_loader) - 1)):
-                # validation
+                ################
+                ###VALIDATION###
+                ################
                 with fork_rng(seed=conf.train.seed):
                     results = do_evaluation(
                         model, val_loader, device, loss_fn, metrics_fn,
@@ -575,18 +578,21 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                     logger.info(f'[Validation] {{{", ".join(str_results)}}}')
 
                     if args.wandb:
-                        # wandb_logger.log_evaluate(results)
                         for k, v in results.items():
                             k = 'val/' + k
                             wandb_logger.wandb.log({k: v})
-                        # wandb_logger.log_evaluate({k: v})
                     else:
                         for k, v in results.items():
                             writer.add_scalar('val/'+k, v, tot_it)
                 torch.cuda.empty_cache()  # should be cleared at the first iter
 
-                # test(model, test_loader, wandb_logger=wandb_logger)
-                # torch.cuda.empty_cache()  # should be cleared at the first iter
+                ################
+                ######TEST######
+                ################
+                # test & save every epoch
+                if args.save_every_epoch:
+                    test_basic(dataset, model, wandb_logger)
+                    torch.cuda.empty_cache()  # should be cleared at the first iter
 
             if stop:
                 break
@@ -602,8 +608,14 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                 'losses': losses_,
                 'eval': results,
             }
+
             # cp_name = f'checkpoint_{epoch}' + ('_interrupted' if stop else '')
-            cp_name = f'checkpoint_last' + ('_interrupted' if stop else '')
+            # cp_name = f'checkpoint_last' + ('_interrupted' if stop else '')
+            if args.save_every_epoch:
+                cp_name = f'checkpoint_{epoch}' + ('_interrupted' if stop else '')
+            else:
+                cp_name = f'checkpoint_last' + ('_interrupted' if stop else '')
+
             logger.info(f'Saving checkpoint {cp_name}')
             cp_path = str(output_dir / (cp_name + '.tar'))
             torch.save(checkpoint, cp_path)
@@ -619,7 +631,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         epoch += 1
         lr_scheduler.step()
 
-    # test
+    # original test mode
     # test(model, test_loader, wandb_logger=wandb_logger)
     test(rank, conf, output_dir, args, wandb_logger=wandb_logger)
 
@@ -640,12 +652,12 @@ def main_worker(rank, conf, output_dir, args):
     if rank == 0:
         with capture_outputs(output_dir / 'log.txt'):
             if args.test:
-                test(rank, conf, output_dir, args, wandb_logger)
+                _ = test(rank, conf, output_dir, args, wandb_logger)
             else:
                 training(rank, conf, output_dir, args, wandb_logger)
     else:
         if args.test:
-            test(rank, conf, output_dir, args, wandb_logger)
+            _ = test(rank, conf, output_dir, args, wandb_logger)
         else:
             training(rank, conf, output_dir, args, wandb_logger)
 
@@ -656,6 +668,7 @@ if __name__ == '__main__':
     parser.add_argument('--conf', type=str)
     parser.add_argument('--overfit', action='store_true', default=False)
     parser.add_argument('--restore', action='store_true', default=False)
+    parser.add_argument('--save_every_epoch', action='store_true', default=False, help='test & save every epoch')
     parser.add_argument('--distributed', action='store_true',default=False)
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--dotlist', nargs='*', default=["data.name=kitti","data.max_num_points3D=4096","data.force_num_points3D=True",
