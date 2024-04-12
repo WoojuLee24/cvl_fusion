@@ -210,7 +210,7 @@ class PointNetEncoder2_1(nn.Module):
         super(PointNetEncoder2_1, self).__init__()
 
         self.normal_channel = normal_channel
-        if mode == 'pointnet2.1':
+        if mode in ['pointnet2.1', 'point2v2.4']:
             in_channel = 6 if normal_channel else 3
             self.sa1 = PointNetSetAbstraction2_1(npoint=n_point, radius=radius, nsample=nsample, in_channel=in_channel,
                                               mlp=mlp, group_all=False)
@@ -222,11 +222,11 @@ class PointNetEncoder2_1(nn.Module):
             self.fc2 = nn.Linear(in_features=32, out_features=32)
             self.fc3 = nn.Linear(in_features=32, out_features=128)
 
-        elif mode == 'pointnet2.1_msg':
-            in_channel = 3 if normal_channel else 0
-            self.sa1 = PointNetSetAbstractionMsg(npoint=n_point, radius_list=radius,
-                                                 nsample_list=nsample, in_channel=in_channel,
-                                                 mlp_list=mlp)
+        # elif mode == 'pointnet2.1_msg':
+        #     in_channel = 3 if normal_channel else 0
+        #     self.sa1 = PointNetSetAbstractionMsg(npoint=n_point, radius_list=radius,
+        #                                          nsample_list=nsample, in_channel=in_channel,
+        #                                          mlp_list=mlp)
 
     def forward(self, xyz):
         xyz = xyz.transpose(2, 1)

@@ -264,7 +264,7 @@ class NNrefinev0_1(nn.Module):
                                              nn.ReLU(inplace=False),
                                              nn.Linear(pointc, pointc))
                 self.linearp0 = nn.Linear(pointc, 32)
-            elif self.args.linearp == 'basicv2.4':
+            elif self.args.linearp in ['basicv2.4', 'point2v2.4']:
                 self.linearp = nn.Sequential(nn.Linear(3, 16),
                                              # nn.BatchNorm1d(16),
                                              nn.ReLU(inplace=False),
@@ -272,13 +272,23 @@ class NNrefinev0_1(nn.Module):
                                              # nn.BatchNorm1d(pointc),
                                              nn.ReLU(inplace=False),
                                              nn.Linear(pointc, pointc))
-                self.linearp0 = nn.Sequential(nn.Linear(3, 16),
-                                             # nn.BatchNorm1d(16),
-                                             nn.ReLU(inplace=False),
-                                             nn.Linear(16, pointc),
-                                             # nn.BatchNorm1d(pointc),
-                                             nn.ReLU(inplace=False),
-                                             nn.Linear(pointc, pointc))
+                if self.args.linearp == 'basicv2.4':
+                    self.linearp0 = nn.Sequential(nn.Linear(3, 16),
+                                                  # nn.BatchNorm1d(16),
+                                                  nn.ReLU(inplace=False),
+                                                  nn.Linear(16, pointc),
+                                                  # nn.BatchNorm1d(pointc),
+                                                  nn.ReLU(inplace=False),
+                                                  nn.Linear(pointc, pointc))
+                elif self.args.linearp == 'point2v2.4':
+                    linearp_property = [0.2, 32, [32, 32, 32]]  # radius, nsample, mlp
+                    self.linearp0 = PointNetEncoder2_1(self.args.max_num_points3D,
+                                                      linearp_property[0],
+                                                      linearp_property[1],
+                                                      linearp_property[2],
+                                                      self.args.linearp) # (B, N, output_dim)
+
+
                 self.linearp_r2 = nn.Sequential(nn.Linear(2 * pointc, 2 * pointc),
                                              # nn.BatchNorm1d(16),
                                              nn.ReLU(inplace=False),
@@ -297,7 +307,7 @@ class NNrefinev0_1(nn.Module):
                                              nn.Linear(pointc, pointc),
                                              nn.ReLU(inplace=False),
                                              nn.Linear(pointc, pointc)
-                                             )
+                                             )      # pointnet2.1?
                 self.linearp_geo = nn.Sequential(nn.Linear(pointc, pointc),
                                              # nn.BatchNorm1d(16),
                                              nn.ReLU(inplace=False),
@@ -582,6 +592,7 @@ class NNrefinev0_1(nn.Module):
             ref_feat = torch.cat([ref_feat, ref_geo_feat], dim=-1)
 
             r = query_q2r_feat - ref_feat
+
 
         B, N, C = r.shape
         if 2-scale == 0:
