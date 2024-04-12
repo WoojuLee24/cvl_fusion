@@ -210,7 +210,7 @@ class PointNetEncoder2_1(nn.Module):
         super(PointNetEncoder2_1, self).__init__()
 
         self.normal_channel = normal_channel
-        if mode in ['pointnet2.1', 'point2v2.4']:
+        if mode in ['pointnet2.1', 'point2v2.4', 'point2v2.5', 'point2v2.6']:
             in_channel = 6 if normal_channel else 3
             self.sa1 = PointNetSetAbstraction2_1(npoint=n_point, radius=radius, nsample=nsample, in_channel=in_channel,
                                               mlp=mlp, group_all=False)
