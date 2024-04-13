@@ -100,7 +100,7 @@ class NNOptimizer3D(BaseOptimizer):
 
         for i in range(self.conf.num_iters):
             # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
-            res, valid, w_unc, F_ref2D, info = self.cost_fn.residuals(T, *args)
+            valid, F_ref2D = self.cost_fn.residuals2(T, *args)
 
             if self.conf.normalize_geometry == 'zsn':
                 p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
@@ -124,28 +124,6 @@ class NNOptimizer3D(BaseOptimizer):
                 p3D = p3D * valid
                 p3D_ref = p3D_ref * valid
 
-            # # compute the cost and aggregate the weights
-            # cost = (res**2).sum(-1)
-            # cost, w_loss, _ = self.loss_fn(cost)
-            # weights = w_loss * valid.float()
-            # if w_unc is not None:
-            #     weights = weights*w_unc
-            # if self.conf.jacobi_scaling:
-            #     J, J_scaling = self.J_scaling(J, J_scaling, valid)
-
-            # # solve the linear system
-            # g, H = self.build_system(J, res, weights)
-            # delta = optimizer_step(g, H, lambda_, mask=~failed)
-            # if self.conf.jacobi_scaling:
-            #     delta = delta * J_scaling
-
-            # # solve the nn optimizer
-
-            # if self.nnrefine.args.linearp == 'uv':
-            #     p2D, _ = camera.world2image(p3D)
-            #     p2D_ref, _ = camera.world2image(p3D_ref)
-            #     delta = self.nnrefine(F_query, F_ref2D, p2D, p2D_ref, scale)
-            # else:
             delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale)
 
             if self.conf.pose_from == 'aa':
@@ -179,51 +157,8 @@ class NNOptimizer3D(BaseOptimizer):
 
                 T_delta = Pose.from_Rt(dR, dt)
 
+            T = T_delta @ T
 
-            if self.conf.range == True:
-                shift = (T_delta @ T) @ T_init.inv()
-                B = dt.size(0)
-                t = shift.t[:, :2]
-                rand_t = torch.distributions.uniform.Uniform(-1, 1).sample([B, 2]).to(dt.device)
-                rand_t.requires_grad = True
-                t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
-                zero = torch.zeros([B, 1]).to(t.device)
-                # zero = shift.t[:, 2:3]
-                t = torch.cat([t, zero], dim=1)
-                shift._data[..., -3:] = t
-                T = shift @ T_init  # TODO
-            else:
-                T = T_delta @ T
-
-            # if self.conf.range in 'rt':
-            #     shift = (T_delta @ T) @ T_init.inv()
-            #     B = dt.size(0)
-            #     if 't' in self.conf.range:
-            #         t = shift.t[:, :2]
-            #         rand_t = torch.distributions.uniform.Uniform(-1, 1).sample([B, 2]).to(dt.device)
-            #         rand_t.requires_grad = True
-            #         t = torch.where((t > -shift_range[0][0]) & (t < shift_range[0][0]), t, rand_t)
-            #         zero = torch.zeros([B, 1]).to(t.device)
-            #         # zero = shift.t[:, 2:3]
-            #         t = torch.cat([t, zero], dim=1)
-            #         shift._data[..., -3:] = t
-            #     if 'r' in self.conf.range:
-            #         r = shift.R
-            #         rand_r = torch.distributions.uniform.Uniform(-0.01, 0.01).sample([B, 1]).to(dt.device)
-            #         rand_r.requires_grad = True
-            #         r = torch.where((r > -shift_range[0][-1]) & (r < shift_range[0][-1]), r, rand_r)
-            #         cos = torch.cos(r)
-            #         sin = torch.sin(r)
-            #         zeros = torch.zeros_like(cos)
-            #         ones = torch.ones_like(cos)
-            #         r = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)
-            #         shift._data[..., :-3] = r
-            #     T = shift @ T_init  # TODO
-            # else:
-            #     T = T_delta @ T
-
-            # self.log(i=i, T_init=T_init, T=T, T_delta=T_delta, cost=cost,
-            #          valid=valid, w_unc=w_unc, w_loss=w_loss, H=H, J=J)
             self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
 
             # if self.early_stop(i=i, T_delta=T_delta, grad=g, cost=cost): # TODO

@@ -128,10 +128,10 @@ class TwoViewRefiner3D(BaseModel):
             mask &= visible
 
 
-            W_q = pred['query']['confidences'][i]
-            W_q, _, _ = opt.interpolator(W_q, p2D_query)
-            W_ref = pred['ref']['confidences'][i]
-            W_ref_q = (W_ref, W_q, 1)
+            # W_q = pred['query']['confidences'][i]
+            # W_q, _, _ = opt.interpolator(W_q, p2D_query)
+            # W_ref = pred['ref']['confidences'][i]
+            # W_ref_q = (W_ref, W_q, 1)
 
             if self.conf.normalize_features in ['l2', True]:
                 F_q = nnF.normalize(F_q, dim=2)  # B x N x C
@@ -142,7 +142,7 @@ class TwoViewRefiner3D(BaseModel):
 
             T_opt, failed, shiftxyr = opt(dict(
                 p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
-                mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
+                mask=mask, W_ref_q=None, data=data, scale=i))
 
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
@@ -154,11 +154,11 @@ class TwoViewRefiner3D(BaseModel):
                 T_init = T_opt.detach()
 
             # query & reprojection GT error, for query unet back propogate  # PAB Loss
-            if self.conf.optimizer.pose_loss: #pose_loss:
-                loss_gt = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref, mask=mask, W_ref_query=W_ref_q)
-                loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q)
-                diff_loss = torch.log(1 + torch.exp(10*(1- (loss_init + 1e-8) / (loss_gt + 1e-8))))
-                pred['pose_loss'].append(diff_loss)
+            # if self.conf.optimizer.pose_loss: #pose_loss:
+            #     loss_gt = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref, mask=mask, W_ref_query=W_ref_q)
+            #     loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q)
+            #     diff_loss = torch.log(1 + torch.exp(10*(1- (loss_init + 1e-8) / (loss_gt + 1e-8))))
+            #     pred['pose_loss'].append(diff_loss)
 
         return pred
 

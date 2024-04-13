@@ -428,8 +428,10 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[device])#, find_unused_parameters=True)
-        model._set_static_graph()
+            model, device_ids=[device],
+            static_graph=False,
+            find_unused_parameters=True)
+        # model._set_static_graph()
     if rank == 0:
         logger.info(f'Model: \n{model}')
     torch.backends.cudnn.benchmark = True
@@ -696,17 +698,17 @@ if __name__ == '__main__':
         OmegaConf.save(conf, str(output_dir / 'config.yaml'))
 
     if args.distributed:
-        args.n_gpus = 2 #torch.cuda.device_count()
-        os.environ["CUDA_VISIBLE_DEVICES"] = '3,4'
+        args.n_gpus = torch.cuda.device_count()
+        # os.environ["CUDA_VISIBLE_DEVICES"] = '3,4'
         os.environ["MASTER_ADDR"] = 'localhost'
         os.environ["MASTER_PORT"] = '1250'
 
         # debug by shan
-        os.environ["NCCL_DEBUG"] = 'INFO'
-        os.environ["NCCL_DEBUG_SUBSYS"] = 'ALL'
-        os.environ["NCCL_LL_THRESHOLD"] = '0'
+        # os.environ["NCCL_DEBUG"] = 'INFO'
+        # os.environ["NCCL_DEBUG_SUBSYS"] = 'ALL'
+        # os.environ["NCCL_LL_THRESHOLD"] = '0'
         #os.environ["NCCL_BLOCKING_WAIT"] = '1'
-        os.environ["TORCH_DISTRIBUTED_DEBUG"] = 'INFO'
+        # os.environ["TORCH_DISTRIBUTED_DEBUG"] = 'INFO'
 
         args.lock_file = output_dir / "distributed_lock"
         if args.lock_file.exists():
