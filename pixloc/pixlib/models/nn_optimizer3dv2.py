@@ -60,6 +60,7 @@ class NNOptimizer3D(BaseOptimizer):
         input_dim=[128, 128, 32],  # [32, 128, 128],
         normalize_geometry='none',
         normalize_geometry_feature='none',
+        opt_list=False,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -97,6 +98,7 @@ class NNOptimizer3D(BaseOptimizer):
 
         lambda_ = self.dampingnet()
         shiftxyr = torch.zeros_like(shift_range)
+        T_opt_list = []
 
         for i in range(self.conf.num_iters):
             # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
@@ -159,6 +161,9 @@ class NNOptimizer3D(BaseOptimizer):
 
             T = T_delta @ T
 
+            if self.conf.opt_list == True:
+                T_opt_list.append(T)
+
             self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
 
             # if self.early_stop(i=i, T_delta=T_delta, grad=g, cost=cost): # TODO
@@ -167,7 +172,10 @@ class NNOptimizer3D(BaseOptimizer):
         if failed.any():
             logger.debug('One batch element had too few valid points.')
 
-        return T, failed, shiftxyr
+        if self.conf.opt_list == True:
+            return T_opt_list, failed, shiftxyr
+        else:
+            return T, failed, shiftxyr
 
 
 class NNrefinev0_1(nn.Module):

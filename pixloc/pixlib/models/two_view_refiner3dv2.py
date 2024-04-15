@@ -7,6 +7,7 @@ from torch.nn import functional as nnF
 import logging
 from copy import deepcopy
 import omegaconf
+import itertools
 import numpy as np
 
 from pixloc.pixlib.models.base_model import BaseModel
@@ -52,6 +53,7 @@ class TwoViewRefiner3D(BaseModel):
             'coe_rot': 1.,
             'cascade': False,
             'attention': False,
+            'opt_list': False,
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -148,10 +150,16 @@ class TwoViewRefiner3D(BaseModel):
             pred['T_q2r_opt'].append(T_opt)
             pred['shiftxyr'].append(shiftxyr)
 
-            if self.conf.optimizer.cascade:
-                T_init = T_opt
+            if self.conf.optimizer.opt_list:
+                if self.conf.optimizer.cascade:
+                    T_init = T_opt[-1]
+                else:
+                    T_init = T_opt[-1].detach()
             else:
-                T_init = T_opt.detach()
+                if self.conf.optimizer.cascade:
+                    T_init = T_opt
+                else:
+                    T_init = T_opt.detach()     # default
 
             # query & reprojection GT error, for query unet back propogate  # PAB Loss
             # if self.conf.optimizer.pose_loss: #pose_loss:
@@ -187,6 +195,8 @@ class TwoViewRefiner3D(BaseModel):
             losses = self.metric_loss(pred, data)
         elif self.conf.optimizer.main_loss == 'reproj_distance':
             losses = self.reproj_distance_loss(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == "reproj2":
+            losses = self.reproj_loss2(pred, data)  # default = reproj
         else:
             losses = self.reproj_loss(pred, data)  # default = reproj
 
@@ -362,17 +372,22 @@ class TwoViewRefiner3D(BaseModel):
         err_init = reprojection_error(pred['T_q2r_init'][0])
 
         num_scales = len(self.extractor.scales)
-        success = None
+        # success = None
         losses = {'total': 0.}
         if self.conf.optimizer.pose_loss:
             losses['pose_loss'] = 0
+
+        if self.conf.optimizer.opt_list:
+            pred['T_q2r_opt'] = list(itertools.chain(*pred['T_q2r_opt']))
+            num_scales *= self.conf.optimizer.num_iters
+
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
             loss = err / num_scales
-            if i > 0:
-                loss = loss * success.float()
-            thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
-            success = err < thresh
+            # if i > 0:
+            #     loss = loss * success.float()
+            # thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
+            # success = err < thresh
             losses[f'reprojection_error/{i}'] = err
             losses['total'] += loss
 
@@ -387,6 +402,45 @@ class TwoViewRefiner3D(BaseModel):
         losses['reprojection_error/init'] = err_init
 
         return losses
+
+    def reproj_loss2(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+
+        def project(T_q2r):
+            return cam_ref.world2image(T_q2r * points_3d)
+
+        p2D_r_gt, mask = project(data['T_q2r_gt'])
+        p2D_r_i, mask_i = project(data['T_q2r_init'])
+        mask = (mask & mask_i).float()
+
+        def reprojection_error(T_q2r):
+            p2D_r, _ = project(T_q2r)
+            err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+            # err = scaled_barron(1., 2.)(err)[0] / 4
+            err = masked_mean(err, mask, -1)
+            return err
+
+        err_init = reprojection_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        losses = {'total': 0.}
+
+        if self.conf.optimizer.opt_list:
+            pred['T_q2r_opt'] = list(itertools.chain(*pred['T_q2r_opt']))
+            num_scales *= self.conf.optimizer.num_iters
+
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            losses[f'reprojection_error/{i}'] = err
+            losses['total'] += loss
+
+        losses['reprojection_error'] = err
+        losses['reprojection_error/init'] = err_init
+
+        return losses
+
 
     def metric_loss(self, pred, data):
         T_r2q_gt = data['T_q2r_gt'].inv()
