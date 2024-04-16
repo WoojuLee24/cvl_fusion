@@ -482,6 +482,8 @@ class TwoViewRefiner3D(BaseModel):
 
         metrics = {}
         for i, T_opt in enumerate(pred['T_q2r_opt']):
+            if self.conf.optimizer.opt_list:
+                T_opt = T_opt[-1]
             err = scaled_pose_error(T_opt)
             metrics[f'R_error/{i}'], metrics[f't_error/{i}'], metrics[f'lat_error/{i}'], metrics[f'long_error/{i}'] = err
         metrics['R_error'], metrics['t_error'], metrics['lat_error'], metrics[f'long_error']  = err
