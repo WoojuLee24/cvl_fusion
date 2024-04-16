@@ -44,7 +44,7 @@ class TwoViewRefiner3D(BaseModel):
             'name': 'unet', #'s2dnet',
         },
         'optimizer': {
-            'name': 'nn_optimizer3dv2', # 'learned_optimizer', #'basic_optimizer',
+            'name': 'nn_optimizer3dv2_1', # 'learned_optimizer', #'basic_optimizer',
             'input': 'res',
             'pose_loss': False,
             'main_loss': 'reproj',
@@ -52,6 +52,7 @@ class TwoViewRefiner3D(BaseModel):
             'coe_lon': 1.,
             'coe_rot': 1.,
             'cascade': False,
+            'cascade_iter': True,
             'attention': False,
             'opt_list': False,
         },

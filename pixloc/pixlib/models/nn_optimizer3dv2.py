@@ -52,6 +52,7 @@ class NNOptimizer3D(BaseOptimizer):
         rot_range=1.,
         range=False, # 'none',   # 'r', 't', 'rt'
         cascade=False,
+        cascade_iter=True,
         linearp='basic', # 'none', 'basic', 'pointnet', 'pointnet2', 'pointnet2_msg'
         radius=0.2,
         version=0.1,
@@ -86,7 +87,7 @@ class NNOptimizer3D(BaseOptimizer):
              data=None,
              scale=None):
 
-        T = T_init
+        T_prev = T_init
         shift_gt = data['data']['shift_gt']
         shift_range = data['data']['shift_range']
 
@@ -94,7 +95,7 @@ class NNOptimizer3D(BaseOptimizer):
         if self.conf.normalize_features:
             F_query = torch.nn.functional.normalize(F_query, dim=-1)
         args = (camera, p3D, F_ref, F_query, W_ref_query)
-        failed = torch.full(T.shape, False, dtype=torch.bool, device=T.device)
+        failed = torch.full(T_prev.shape, False, dtype=torch.bool, device=T_prev.device)
 
         lambda_ = self.dampingnet()
         shiftxyr = torch.zeros_like(shift_range)
@@ -102,7 +103,7 @@ class NNOptimizer3D(BaseOptimizer):
 
         for i in range(self.conf.num_iters):
             # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
-            valid, F_ref2D = self.cost_fn.residuals2(T, *args)
+            valid, F_ref2D = self.cost_fn.residuals2(T_prev, *args)
 
             if self.conf.normalize_geometry == 'zsn':
                 p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
@@ -113,7 +114,7 @@ class NNOptimizer3D(BaseOptimizer):
                 std = torch.tensor([6.9589,  0.8642, 11.5166]).to(p3D.device).repeat(1, 1, 1)
                 p3D = (p3D - mean) / (std + 1e-6)
 
-            p3D_ref = T * p3D
+            p3D_ref = T_prev * p3D
 
             if mask is not None:
                 valid &= mask
@@ -159,7 +160,12 @@ class NNOptimizer3D(BaseOptimizer):
 
                 T_delta = Pose.from_Rt(dR, dt)
 
-            T = T_delta @ T
+            T = T_delta @ T_prev
+
+            if self.conf.cascade_iter:
+                T_prev = T
+            else:
+                T_prev = T.detach()
 
             if self.conf.opt_list == True:
                 T_opt_list.append(T)
