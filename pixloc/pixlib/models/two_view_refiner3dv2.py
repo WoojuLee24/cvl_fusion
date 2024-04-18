@@ -54,6 +54,7 @@ class TwoViewRefiner3D(BaseModel):
             'cascade': False,
             'attention': False,
             'opt_list': False,
+            'domain_gap': 'none',
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -107,6 +108,7 @@ class TwoViewRefiner3D(BaseModel):
         pred['T_q2r_opt'] = []
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
+        pred['domain_gap'] = []
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
                 F_ref = pred['ref']['feature_maps'][i] * pred['ref']['confidences'][i]
@@ -149,6 +151,8 @@ class TwoViewRefiner3D(BaseModel):
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
             pred['shiftxyr'].append(shiftxyr)
+            if self.conf.optimizer.domain_gap != 'none':
+                pred['domain_gap'].append(failed)
 
             if self.conf.optimizer.opt_list:
                 if self.conf.optimizer.cascade:
@@ -435,6 +439,11 @@ class TwoViewRefiner3D(BaseModel):
             loss = err / num_scales
             losses[f'reprojection_error/{i}'] = err
             losses['total'] += loss
+
+        if 'domain_gap' in pred.keys():
+            for i, gap in enumerate(pred['domain_gap']):
+                losses[f'domain_gap/{i}'] = gap
+                losses['total'] += gap / num_scales
 
         losses['reprojection_error'] = err
         losses['reprojection_error/init'] = err_init

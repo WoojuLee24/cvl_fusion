@@ -58,9 +58,11 @@ class NNOptimizer3D(BaseOptimizer):
         attention=False,
         mask=True,
         input_dim=[128, 128, 32],  # [32, 128, 128],
-        normalize_geometry='none',
-        normalize_geometry_feature='none',
+        normalize_geometry='zsn2',
+        normalize_geometry_feature='l2',
         opt_list=False,
+        domain_gap='none',
+        domain_lambda=100,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -127,6 +129,11 @@ class NNOptimizer3D(BaseOptimizer):
                 p3D_ref = p3D_ref * valid
 
             delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale)
+
+            if self.conf.domain_gap != 'none' and self.training:
+                p3D_ref_gt = data['data']['T_q2r_gt'] * p3D
+                domain_gap = self.nnrefine.gt_forward(F_ref2D, p3D_ref_gt, scale)
+                failed = domain_gap * self.conf.domain_lambda   # temp
 
             if self.conf.pose_from == 'aa':
                 # compute the pose update
@@ -590,14 +597,21 @@ class NNrefinev0_1(nn.Module):
 
             r = query_q2r_feat - ref_feat
 
+
         elif self.args.version == 2.6:
+
             if scale == 0:
-                query_feat = self.linear_rgb(query_feat)    # 32 -> 128
-                ref_feat = self.linear_rgb(ref_feat)    # 32 -> 128
+                query_feat = self.linear_rgb(query_feat)  # 32 -> 128
+                ref_feat = self.linear_rgb(ref_feat)  # 32 -> 128
                 query_feat = torch.nn.functional.normalize(query_feat, dim=-1)
                 ref_feat = torch.nn.functional.normalize(ref_feat, dim=-1)
-            p3D_query_pe = self.linearp_pe(p3D_query.contiguous())   # positional encoding
-            p3D_q2r_pe = self.linearp_pe(p3D_ref.contiguous())   # positional encoding
+
+            p3D_q2r = p3D_ref.contiguous()
+            p3D_q2r_feat = self.linearp(p3D_q2r)  # [B, N, C]
+            ref_geo_feat = self.linearp_geo(ref_feat)
+
+            p3D_query_pe = self.linearp_pe(p3D_query)
+            p3D_q2r_pe = self.linearp_pe(p3D_q2r)
 
             # normalization
             if self.args.normalize_geometry_feature == 'l2':
@@ -609,20 +623,13 @@ class NNrefinev0_1(nn.Module):
 
             r1 = query_rgb_feat - ref_rgb_feat  # [B, N, 2C]
 
-            p3D_q2r_geofeat = self.linearp_geo(p3D_ref.contiguous())  # geometric encoding
-            ref_geofeat = self.linearp_geo2(ref_feat)  # geometric encoding
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_q2r_feat = torch.nn.functional.normalize(p3D_q2r_feat, dim=-1)
+                ref_geo_feat = torch.nn.functional.normalize(ref_geo_feat, dim=-1)
 
-            # # normalization
-            # if self.args.normalize_geometry_feature == 'l2':
-            #     p3D_ref_feat0 = torch.nn.functional.normalize(p3D_ref_feat0, dim=-1)
-            #     ref_geo_feat = torch.nn.functional.normalize(ref_geo_feat, dim=-1)
-
-            # ref_feat = ref_feat # linear projection required for geometric ref feat??
-            r2 = 1 - F.cosine_similarity(ref_geofeat, p3D_q2r_geofeat, dim=-1)
-            r2 = self.linearp_r2(r2)    # [B, N, 2C]
-
-            r = torch.cat([r1, r2], dim=-1)     # [B, N, 4C]
-
+            r2 = p3D_q2r_feat - ref_geo_feat
+            r = torch.cat([r1, r2], dim=-1)
 
         B, N, C = r.shape
         if 2-scale == 0:
@@ -645,3 +652,20 @@ class NNrefinev0_1(nn.Module):
         y = self.mapping(x)  # [B, 3]
 
         return y
+
+    def gt_forward(self, ref_feat, p3D_ref_gt, scale):
+        if scale == 0:
+            ref_feat = self.linear_rgb(ref_feat)  # 32 -> 128
+            ref_feat = torch.nn.functional.normalize(ref_feat, dim=-1)
+
+        p3D_ref_feat = self.linearp(p3D_ref_gt)  # [B, N, C]
+        ref_geo_feat = self.linearp_geo(ref_feat)
+
+        # normalization
+        if self.args.normalize_geometry_feature == 'l2':
+            p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+            ref_geo_feat = torch.nn.functional.normalize(ref_geo_feat, dim=-1)
+
+        domain_gap = - F.cosine_similarity(p3D_ref_feat, ref_geo_feat, dim=-1)
+
+        return domain_gap.mean(dim=1)
