@@ -107,6 +107,8 @@ class TwoViewRefiner3D(BaseModel):
         pred['T_q2r_opt'] = []
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
+
+
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
                 F_ref = pred['ref']['feature_maps'][i] * pred['ref']['confidences'][i]
@@ -197,6 +199,8 @@ class TwoViewRefiner3D(BaseModel):
             losses = self.reproj_distance_loss(pred, data)  # default = reproj
         elif self.conf.optimizer.main_loss == "reproj2":
             losses = self.reproj_loss2(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == 'reproj3':
+            losses = self.reproj_loss3(pred, data)  # default = reproj
         else:
             losses = self.reproj_loss(pred, data)  # default = reproj
 
@@ -432,6 +436,40 @@ class TwoViewRefiner3D(BaseModel):
 
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            losses[f'reprojection_error/{i}'] = err
+            losses['total'] += loss
+
+        losses['reprojection_error'] = err
+        losses['reprojection_error/init'] = err_init
+
+        return losses
+
+
+    def reproj_loss3(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+
+        if self.conf.optimizer.normalize_geometry == 'zsn2':
+            mean = torch.tensor([-0.1917, 0.9250, 15.6600]).to(points_3d.device).repeat(1, 1, 1)
+            std = torch.tensor([6.9589, 0.8642, 11.5166]).to(points_3d.device).repeat(1, 1, 1)
+            points_3d = (points_3d - mean) / (std + 1e-6)
+
+        p3D_r_gt =  data['T_q2r_gt'] * points_3d
+        p3D_r_i = data['T_q2r_init'] * points_3d
+
+        def reprojection_error(T_q2r):
+            p3D_r = T_q2r * points_3d
+            err = torch.sum((p3D_r_gt - p3D_r) ** 2, dim=-1)
+            return err.mean(dim=-1)
+
+        err_init = reprojection_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        losses = {'total': 0.}
+
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = reprojection_error(T_opt)
             loss = err / num_scales
             losses[f'reprojection_error/{i}'] = err
             losses['total'] += loss
