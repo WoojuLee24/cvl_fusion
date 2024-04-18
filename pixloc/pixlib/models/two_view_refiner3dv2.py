@@ -54,6 +54,7 @@ class TwoViewRefiner3D(BaseModel):
             'cascade': False,
             'attention': False,
             'opt_list': False,
+            'jacobian': False,
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -129,11 +130,13 @@ class TwoViewRefiner3D(BaseModel):
             F_q, mask, _ = opt.interpolator(F_q, p2D_query)
             mask &= visible
 
-
-            # W_q = pred['query']['confidences'][i]
-            # W_q, _, _ = opt.interpolator(W_q, p2D_query)
-            # W_ref = pred['ref']['confidences'][i]
-            # W_ref_q = (W_ref, W_q, 1)
+            if self.conf.optimizer.jacobian:
+                W_q = pred['query']['confidences'][i]
+                W_q, _, _ = opt.interpolator(W_q, p2D_query)
+                W_ref = pred['ref']['confidences'][i]
+                W_ref_q = (W_ref, W_q, 1)
+            else:
+                W_ref_q = None
 
             if self.conf.normalize_features in ['l2', True]:
                 F_q = nnF.normalize(F_q, dim=2)  # B x N x C
@@ -144,7 +147,7 @@ class TwoViewRefiner3D(BaseModel):
 
             T_opt, failed, shiftxyr = opt(dict(
                 p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
-                mask=mask, W_ref_q=None, data=data, scale=i))
+                mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
 
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)

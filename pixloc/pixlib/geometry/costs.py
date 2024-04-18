@@ -151,7 +151,6 @@ class DirectAbsoluteCost:
         J = J_f_p2D @ J_p2D_T
         return J, J_p2D_T
 
-
     def residual_jacobian(
             self, T_q2r: Pose, camera: Camera, p3D: Tensor,
             F_ref: Tensor, F_query: Tensor,
@@ -160,4 +159,28 @@ class DirectAbsoluteCost:
         res, valid, weight, F_p2D, info = self.residuals(
             T_q2r, camera, p3D, F_ref, F_query, confidences, True)
         J, _ = self.jacobian(T_q2r, camera, *info)
+        return res, valid, weight, F_p2D, J
+
+    def jacobian2(
+            self, T_q2r: Pose, camera: Camera,
+            p3D_r: Tensor, F_p2D_raw: Tensor, J_f_p2D: Tensor):
+
+        J_p3D_T = T_q2r.J_transform2(p3D_r)
+        J_p2D_p3D, _ = camera.J_world2image(p3D_r)
+
+        if self.normalize:
+            J_f_p2D = J_normalization(F_p2D_raw) @ J_f_p2D
+
+        J_p2D_T = J_p2D_p3D @ J_p3D_T
+        J = J_f_p2D @ J_p2D_T
+        return J, J_p2D_T
+
+    def residual_jacobian2(
+            self, T_q2r: Pose, camera: Camera, p3D: Tensor,
+            F_ref: Tensor, F_query: Tensor,
+            confidences: Optional[Tuple[Tensor, Tensor]] = None):
+
+        res, valid, weight, F_p2D, info = self.residuals(
+            T_q2r, camera, p3D, F_ref, F_query, confidences, True)
+        J, _ = self.jacobian2(T_q2r, camera, *info)
         return res, valid, weight, F_p2D, J

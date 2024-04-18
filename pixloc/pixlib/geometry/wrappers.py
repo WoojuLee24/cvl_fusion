@@ -214,6 +214,18 @@ class Pose(TensorWrapper):
         J = torch.cat([J_t, J_rot], dim=-1)
         return J  # N x 3 x 6
 
+    @autocast
+    def J_transform2(self, p3d_out: torch.Tensor):
+        # only care 5DOF, R, lon:Tx, lat:Ty, because sat is parra projection
+        #   Tx Ty Rz
+        # [[1,0,py],
+        #  [0,1,-px],
+        #  [0,0,0]]
+        J_t = torch.diag_embed(torch.ones_like(p3d_out))
+        J_rot = -skew_symmetric(p3d_out)
+        J = torch.cat([J_t[...,:2], J_rot[...,-1:]], dim=-1)
+        return J  # N x 3 x 3
+
     def numpy(self) -> Tuple[np.ndarray]:
         return self.R.numpy(), self.t.numpy()
 
