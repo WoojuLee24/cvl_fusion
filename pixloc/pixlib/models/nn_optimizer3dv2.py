@@ -184,7 +184,7 @@ class NNrefinev0_1(nn.Module):
         self.args = args
 
         self.cin = self.args.input_dim  # [64, 32, 16] # [128, 128, 32]
-        if self.args.version in [2.4, 2.5]:
+        if self.args.version in [2.4, 2.5, 2.6]:
             self.cin = [128, 128, 128]
         self.cout = 128
         pointc = 128
@@ -304,7 +304,7 @@ class NNrefinev0_1(nn.Module):
                                                           linearp_property[2],
                                                           self.args.linearp)  # (B, N, output_dim)
 
-                self.linearp_r2 = nn.Sequential(nn.Linear(2 * pointc, 2 * pointc),
+                self.linearp_r2 = nn.Sequential(nn.Linear(pointc, 2 * pointc),
                                                 # nn.BatchNorm1d(16),
                                                 nn.ReLU(inplace=False),
                                                 nn.Linear(2 * pointc, 2 * pointc),
@@ -362,7 +362,7 @@ class NNrefinev0_1(nn.Module):
             self.cin = [c+3 for c in self.cin]
         elif self.args.version == 2.3:
             self.cin = [128, 128, 32]
-        elif self.args.version == 2.4:
+        elif self.args.version in [2.4, 2.6]:
             self.cin = [c*2 for c in self.cin]
         if self.args.input in ['concat']:
             self.cin = [c*2 for c in self.cin]
@@ -596,6 +596,7 @@ class NNrefinev0_1(nn.Module):
                 ref_feat = self.linear_rgb(ref_feat)    # 32 -> 128
                 query_feat = torch.nn.functional.normalize(query_feat, dim=-1)
                 ref_feat = torch.nn.functional.normalize(ref_feat, dim=-1)
+
             p3D_query_pe = self.linearp_pe(p3D_query.contiguous())   # positional encoding
             p3D_q2r_pe = self.linearp_pe(p3D_ref.contiguous())   # positional encoding
 
@@ -612,13 +613,13 @@ class NNrefinev0_1(nn.Module):
             p3D_q2r_geofeat = self.linearp_geo(p3D_ref.contiguous())  # geometric encoding
             ref_geofeat = self.linearp_geo2(ref_feat)  # geometric encoding
 
-            # # normalization
-            # if self.args.normalize_geometry_feature == 'l2':
-            #     p3D_ref_feat0 = torch.nn.functional.normalize(p3D_ref_feat0, dim=-1)
-            #     ref_geo_feat = torch.nn.functional.normalize(ref_geo_feat, dim=-1)
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_q2r_geofeat = torch.nn.functional.normalize(p3D_q2r_geofeat, dim=-1)
+                ref_geofeat = torch.nn.functional.normalize(ref_geofeat, dim=-1)
 
             # ref_feat = ref_feat # linear projection required for geometric ref feat??
-            r2 = 1 - F.cosine_similarity(ref_geofeat, p3D_q2r_geofeat, dim=-1)
+            r2 = p3D_q2r_geofeat - ref_geofeat
             r2 = self.linearp_r2(r2)    # [B, N, 2C]
 
             r = torch.cat([r1, r2], dim=-1)     # [B, N, 4C]
