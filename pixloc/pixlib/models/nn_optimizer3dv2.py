@@ -370,6 +370,8 @@ class NNrefinev0_1(nn.Module):
             self.cin = [c*2 for c in self.cin]
         if self.args.input in ['concat']:
             self.cin = [c*2 for c in self.cin]
+        elif self.args.input in ['resconcat']:
+            self.cin = [c*3 for c in self.cin]
 
         if self.args.jacobian:
             if self.args.version == 1.0:
@@ -450,6 +452,8 @@ class NNrefinev0_1(nn.Module):
 
             if self.args.input == 'concat':     # default
                 r = torch.cat([query_feat, ref_feat], dim=-1)
+            elif self.args.input == 'resconcat':
+                r = torch.cat([query_feat, ref_feat, query_feat - ref_feat], dim=-1)
             else:
                 r = query_feat - ref_feat  # [B, C, H, W]
 
