@@ -61,6 +61,7 @@ class NNOptimizer3D(BaseOptimizer):
         normalize_geometry='none',
         normalize_geometry_feature='none',
         opt_list=False,
+        jacobian=False,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -101,8 +102,11 @@ class NNOptimizer3D(BaseOptimizer):
         T_opt_list = []
 
         for i in range(self.conf.num_iters):
-            # res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian(T, *args)
-            valid, F_ref2D = self.cost_fn.residuals2(T, *args)
+            if self.conf.jacobian:
+                res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian2(T, *args)
+            else:
+                valid, F_ref2D = self.cost_fn.residuals2(T, *args)
+                J = None
 
             if self.conf.normalize_geometry == 'zsn':
                 p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
@@ -126,7 +130,7 @@ class NNOptimizer3D(BaseOptimizer):
                 p3D = p3D * valid
                 p3D_ref = p3D_ref * valid
 
-            delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale)
+            delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale, J)
 
             if self.conf.pose_from == 'aa':
                 # compute the pose update
@@ -367,6 +371,12 @@ class NNrefinev0_1(nn.Module):
         if self.args.input in ['concat']:
             self.cin = [c*2 for c in self.cin]
 
+        if self.args.jacobian:
+            if self.args.version == 1.0:
+                J_size = [128, 128, 32]
+            elif self.args.version in [2.4, 2.6]:
+                J_size = [128, 128, 128]
+            self.cin = [c+J_size[i]*3 for i, c in enumerate(self.cin)]
 
         if self.args.pose_from == 'aa':
             self.yout = 6
@@ -409,7 +419,7 @@ class NNrefinev0_1(nn.Module):
                                      nn.Tanh())
 
 
-    def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale):
+    def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale, J=None):
 
         B, N, C = query_feat.size()
 
@@ -624,6 +634,9 @@ class NNrefinev0_1(nn.Module):
 
             r = torch.cat([r1, r2], dim=-1)     # [B, N, 4C]
 
+        if J is not None:
+            J = J.view(B, N, -1)
+            r = torch.cat([r, J], dim=-1)
 
         B, N, C = r.shape
         if 2-scale == 0:
