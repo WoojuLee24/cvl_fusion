@@ -503,6 +503,9 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         # if epoch > 0 and conf.train.dataset_callback_fn:
         #     getattr(train_loader.dataset, conf.train.dataset_callback_fn)(
         #         conf.train.seed + epoch)
+        errR = torch.tensor([])
+        errlong = torch.tensor([])
+        errlat = torch.tensor([])
 
         for it, data in enumerate(train_loader):
             tot_it = len(train_loader)*epoch + it
@@ -512,6 +515,13 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
             pred = model(data)
             losses = loss_fn(pred, data)
             loss = torch.mean(losses['total'])
+            metrics = metrics_fn(pred, data)
+
+            with torch.no_grad():
+                errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
+                errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
+                errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
+
             #tick = time.time()
             do_backward = loss.requires_grad
             if args.distributed:
@@ -558,6 +568,10 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                             k = 'training/' + k
                             wandb_logger.wandb.log({k: v})
                         wandb_logger.wandb.log({'training/lr': optimizer.param_groups[0]['lr']})
+                        wandb_logger.wandb.log({'training/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
+                        wandb_logger.wandb.log({'training/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
+                        wandb_logger.wandb.log({'training/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+
                     else:
                         for k, v in losses.items():
                             writer.add_scalar('training/'+k, v, tot_it)

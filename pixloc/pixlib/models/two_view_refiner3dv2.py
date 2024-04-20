@@ -196,12 +196,18 @@ class TwoViewRefiner3D(BaseModel):
     def loss(self, pred, data):
         if self.conf.optimizer.main_loss == 'rt':
             losses = self.rt_loss(pred, data)
+        elif self.conf.optimizer.main_loss == 'tf':
+            losses = self.tf_loss(pred, data)
         elif self.conf.optimizer.main_loss == 'metric':
             losses = self.metric_loss(pred, data)
         elif self.conf.optimizer.main_loss == 'reproj_distance':
             losses = self.reproj_distance_loss(pred, data)  # default = reproj
         elif self.conf.optimizer.main_loss == "reproj2":
             losses = self.reproj_loss2(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == "reproj2r":
+            losses = self.reproj_loss2r(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == "reproj2tf":
+            losses = self.reproj_loss2tf(pred, data)  # default = reproj
         elif self.conf.optimizer.main_loss == 'reproj3':
             losses = self.reproj_loss3(pred, data)  # default = reproj
         else:
@@ -211,16 +217,6 @@ class TwoViewRefiner3D(BaseModel):
 
 
     def tf_loss(self, pred, data):
-        # cam_ref = data['ref']['camera']
-        # points_3d = data['query']['points3D']
-
-        # def project(T_q2r):
-        #     return cam_ref.world2image(T_q2r * points_3d)
-
-        # p2D_r_gt, mask = project(data['T_q2r_gt'])
-        # p2D_r_i, mask_i = project(data['T_q2r_init'])
-        # mask = (mask & mask_i).float()
-
         T_q2r_gt = data['T_q2r_gt']
         T_q2r_init = data['T_q2r_init']
 
@@ -228,7 +224,6 @@ class TwoViewRefiner3D(BaseModel):
             err_R = torch.sum(torch.sum(torch.abs(T_q2r_gt.R - T_q2r.R), dim=-1), dim=-1)
             err_T = torch.sum(torch.abs(T_q2r_gt.t - T_q2r.t), dim=-1)
             err = self.conf.optimizer.coe_rot * err_R + self.conf.optimizer.coe_lat * err_T
-
             return err
 
         err_init = tf_error(pred['T_q2r_init'][0])
@@ -240,26 +235,15 @@ class TwoViewRefiner3D(BaseModel):
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = tf_error(T_opt)
             loss = err / num_scales
-            # if i > 0:
-            #     loss = loss * success.float()
-            # thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
-            # success = err < thresh
             losses[f'tf_error/{i}'] = err
             losses['total'] += loss
-
-            # # query & reprojection GT error, for query unet back propogate
-            # if self.conf.optimizer.pose_loss:
-            #     losses['pose_loss'] += pred['pose_loss'][i] / num_scales
-            #     poss_loss_weight = get_weight_from_reproloss(err_init)
-            #     losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
-            #         max=self.conf.clamp_error / num_scales)
 
         losses['tf_error'] = err
         losses['tf_error/init'] = err_init
 
-        with torch.no_grad():
-            reproj_losses = self.reproj_loss(pred, data)
-            losses['reprojection_error'] = reproj_losses['reprojection_error'].mean().clone().detach()
+        # with torch.no_grad():
+        #     reproj_losses = self.reproj_loss(pred, data)
+        #     losses['reprojection_error'] = reproj_losses['reprojection_error'].mean().clone().detach()
 
         return losses
 
@@ -285,24 +269,21 @@ class TwoViewRefiner3D(BaseModel):
 
         for i, shift in enumerate(pred['shiftxyr']):
             err = shift_error(shift)
-            err_lat = err[:, 0].detach()
-            err_lon = err[:, 1].detach()
-            err_rot = err[:, 2].detach()
             loss = (coe * err).sum(dim=-1) / num_scales
 
-            losses[f'error/{i}'] = err.mean(dim=-1).detach()
-            losses[f'error_lat/{i}'] = err_lat
-            losses[f'error_lon/{i}'] = err_lon
-            losses[f'error_rot/{i}'] = err_rot
+            losses[f'shift_error/{i}'] = err.mean(dim=-1).detach()
+            # losses[f'error_lat/{i}'] = err[:, 0].detach()
+            # losses[f'error_lon/{i}'] = err[:, 1].detach()
+            # losses[f'error_rot/{i}'] = err[:, 2].detach()
 
             losses['total'] += loss
 
-        losses['error'] = err.mean(dim=-1).detach()
-        losses['error_init'] = err_init.mean(dim=-1).detach()
+        losses['shift_error'] = err.mean(dim=-1).detach()
+        losses['shift_error/init'] = err_init.mean(dim=-1).detach()
 
-        with torch.no_grad():
-            reproj_losses = self.reproj_loss(pred, data)
-            losses['reprojection_error'] = reproj_losses['reprojection_error'].detach()
+        # with torch.no_grad():
+        #     reproj_losses = self.reproj_loss(pred, data)
+        #     losses['reprojection_error'] = reproj_losses['reprojection_error'].detach()
 
         return losses
 
@@ -445,6 +426,102 @@ class TwoViewRefiner3D(BaseModel):
 
         losses['reprojection_error'] = err
         losses['reprojection_error/init'] = err_init
+
+        return losses
+
+
+    def reproj_loss2r(self, pred, data):
+        # cam_ref = data['ref']['camera']
+        # points_3d = data['query']['points3D']
+
+        # def project(T_q2r):
+        #     return cam_ref.world2image(T_q2r * points_3d)
+        #
+        # p2D_r_gt, mask = project(data['T_q2r_gt'])
+        # p2D_r_i, mask_i = project(data['T_q2r_init'])
+        # mask = (mask & mask_i).float()
+        #
+        # def reprojection_error(T_q2r):
+        #     p2D_r, _ = project(T_q2r)
+        #     err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+        #     # err = scaled_barron(1., 2.)(err)[0] / 4
+        #     err = masked_mean(err, mask, -1)
+        #     return err
+        #
+        # err_init = reprojection_error(pred['T_q2r_init'][0])
+        #
+        # num_scales = len(self.extractor.scales)
+        # losses = {'total': 0.}
+        #
+        # if self.conf.optimizer.opt_list:
+        #     pred['T_q2r_opt'] = list(itertools.chain(*pred['T_q2r_opt']))
+        #     num_scales *= self.conf.optimizer.num_iters
+        #
+        # for i, T_opt in enumerate(pred['T_q2r_opt']):
+        #     err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+        #     loss = err / num_scales
+        #     losses[f'reprojection_error/{i}'] = err
+        #     losses['total'] += loss
+        #
+        # losses['reprojection_error'] = err
+        # losses['reprojection_error/init'] = err_init
+        losses1 = self.reproj_loss2(pred, data)
+        losses2 = self.rt_loss(pred, data)
+
+        losses = losses1
+        for k, v in losses2.items():
+            if k == 'total':
+                losses[k] = losses[k] + losses2[k]
+            else:
+                losses[k] = losses2[k]
+
+        return losses
+
+
+    def reproj_loss2tf(self, pred, data):
+        # cam_ref = data['ref']['camera']
+        # points_3d = data['query']['points3D']
+
+        # def project(T_q2r):
+        #     return cam_ref.world2image(T_q2r * points_3d)
+        #
+        # p2D_r_gt, mask = project(data['T_q2r_gt'])
+        # p2D_r_i, mask_i = project(data['T_q2r_init'])
+        # mask = (mask & mask_i).float()
+        #
+        # def reprojection_error(T_q2r):
+        #     p2D_r, _ = project(T_q2r)
+        #     err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+        #     # err = scaled_barron(1., 2.)(err)[0] / 4
+        #     err = masked_mean(err, mask, -1)
+        #     return err
+        #
+        # err_init = reprojection_error(pred['T_q2r_init'][0])
+        #
+        # num_scales = len(self.extractor.scales)
+        # losses = {'total': 0.}
+        #
+        # if self.conf.optimizer.opt_list:
+        #     pred['T_q2r_opt'] = list(itertools.chain(*pred['T_q2r_opt']))
+        #     num_scales *= self.conf.optimizer.num_iters
+        #
+        # for i, T_opt in enumerate(pred['T_q2r_opt']):
+        #     err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+        #     loss = err / num_scales
+        #     losses[f'reprojection_error/{i}'] = err
+        #     losses['total'] += loss
+        #
+        # losses['reprojection_error'] = err
+        # losses['reprojection_error/init'] = err_init
+        losses1 = self.reproj_loss2(pred, data)
+        losses2 = self.tf_loss(pred, data)
+
+        losses = losses1
+        for k, v in losses2.items():
+            if k == 'total':
+                losses[k] = losses[k] + losses2[k]
+            else:
+                losses[k] = losses2[k]
 
         return losses
 
