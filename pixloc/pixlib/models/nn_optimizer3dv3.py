@@ -54,6 +54,7 @@ class NNOptimizer3D(BaseOptimizer):
         range=False, # 'none',   # 'r', 't', 'rt'
         cascade=False,
         linearp='basic', # 'none', 'basic', 'pointnet', 'pointnet2', 'pointnet2_msg'
+        geo_proj='none',
         radius=0.2,
         version=0.1,
         attention=False,
@@ -391,8 +392,41 @@ class NNrefinev1_0(nn.Module):
                                      nn.Linear(pointc, pointc))
 
         # geometric projection
-        # if self.args.geo_proj in ['pointnet']:
-        # elif self.args.geo_proj in ['pointnet2.1']:
+        if self.args.geo_proj != 'none':
+            if self.args.geo_proj in ['pointnet']:
+                self.rgbp = nn.Sequential(nn.Linear(pointc, pointc),
+                                          nn.ReLU(inplace=False),
+                                          nn.Linear(pointc, pointc),
+                                          nn.ReLU(inplace=False),
+                                          nn.Linear(pointc, pointc))
+                self.lidarp = nn.Sequential(nn.Linear(pointc, pointc),
+                                            nn.ReLU(inplace=False),
+                                            nn.Linear(pointc, pointc),
+                                            nn.ReLU(inplace=False),
+                                            nn.Linear(pointc, pointc))
+            elif self.args.geo_proj in ['pointnet2.1']:
+                self.rgbp = nn.Sequential(nn.Linear(pointc, pointc),
+                                          nn.ReLU(inplace=False),
+                                          nn.Linear(pointc, pointc),
+                                          nn.ReLU(inplace=False),
+                                          nn.Linear(pointc, pointc))
+
+                lidarp_property = [0.2, 32, [32, 32, 32]]  # radius, nsample, mlp
+                self.lidarp = PointNetEncoder2_1(self.args.max_num_points3D,
+                                                 lidarp_property[0], lidarp_property[1], lidarp_property[2],
+                                                 self.args.geo_proj, out_features=pointc)
+
+            self.r1p = nn.Sequential(nn.Linear(2 * pointc, 2 * pointc),
+                                     nn.ReLU(inplace=False),
+                                     nn.Linear(2 * pointc, 2 * pointc),
+                                     nn.ReLU(inplace=False),
+                                     nn.Linear(2 * pointc, 2 * pointc))
+
+            self.r2p = nn.Sequential(nn.Linear(2 * pointc, 2 * pointc),
+                                     nn.ReLU(inplace=False),
+                                     nn.Linear(2 * pointc, 2 * pointc),
+                                     nn.ReLU(inplace=False),
+                                     nn.Linear(2 * pointc, 2 * pointc))
 
         # channel projection
         if self.args.version in [1.0]:
@@ -401,6 +435,8 @@ class NNrefinev1_0(nn.Module):
             self.cin = [c * 4 for c in self.cin]
         elif self.args.version in [1.2]:
             self.cin = [c * 3 for c in self.cin]
+        elif self.args.version in [1.3, 1.4]:
+            self.cin = [c * 4 for c in self.cin]
 
         if self.args.jacobian:
             J_size = self.args.input_dim
@@ -466,15 +502,45 @@ class NNrefinev1_0(nn.Module):
             r = torch.cat([query_feat, ref_feat, query_feat - ref_feat, p3D_ref_feat], dim=-1)
 
         elif self.args.version == 1.2:
-            # p3D_query_feat = self.linearp(p3D_query.contiguous())
             p3D_ref_feat = self.linearp(p3D_ref.contiguous())
 
             # normalization
             if self.args.normalize_geometry_feature == 'l2':
-                # p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
                 p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
 
             r = torch.cat([ref_feat, query_feat - ref_feat, p3D_ref_feat], dim=-1)
+
+        elif self.args.version == 1.3:
+            # RGB vs RGB
+            p3D_ref_feat = self.linearp(p3D_ref.contiguous())
+            p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)          # normalization
+            r1 = torch.cat([query_feat - ref_feat, p3D_ref_feat], dim=-1)
+
+            # RGB vs LiDAR
+            p3D_ref_geofeat = self.lidarp(p3D_ref.contiguous())
+            ref_geofeat = self.rgbp(ref_feat)
+            p3D_ref_geofeat = torch.nn.functional.normalize(p3D_ref_geofeat, dim=-1)    # normalization
+            ref_geofeat = torch.nn.functional.normalize(ref_geofeat, dim=-1)            # normalization
+            r2 = torch.cat([ref_geofeat, p3D_ref_geofeat], dim=-1)
+
+            r = torch.cat([r1, r2], dim=-1)
+
+        elif self.args.version == 1.4:
+            # RGB vs RGB
+            p3D_ref_feat = self.linearp(p3D_ref.contiguous())
+            p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)          # normalization
+            r1 = torch.cat([query_feat - ref_feat, p3D_ref_feat], dim=-1)
+            r1 = self.r1p(r1)
+
+            # RGB vs LiDAR
+            p3D_ref_geofeat = self.lidarp(p3D_ref.contiguous())
+            ref_geofeat = self.rgbp(ref_feat)
+            p3D_ref_geofeat = torch.nn.functional.normalize(p3D_ref_geofeat, dim=-1)    # normalization
+            ref_geofeat = torch.nn.functional.normalize(ref_geofeat, dim=-1)            # normalization
+            r2 = torch.cat([ref_geofeat, p3D_ref_geofeat], dim=-1)
+            r2 = self.r2p(r2)
+
+            r = torch.cat([r1, r2], dim=-1)
 
         if J is not None:
             J = J.view(B, N, -1)
