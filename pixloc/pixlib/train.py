@@ -194,47 +194,62 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
     model.eval()
     total_err = {}
     for corruption, test_loader in test_loaders.items():
-        severity_err = torch.zeros(5, 3, len(test_loader)) # [severity, output(r, long, lat), # of test data]
+        print(corruption)
+        severity_err = {}
 
         for idx, data in enumerate(tqdm(test_loader)):
             severity_images = data['query']['image'].copy()
-            for severity in range(1, 6):
-                data['query']['image'] = severity_images[severity] # it use only a specific severity grd image
+
+            for severity, severity_image in severity_images.items():
+                data['query']['image'] = severity_image # it use only a specific severity grd image
 
                 data_ = batch_to_device(data, device='cuda')
                 # logger.set(data_)
                 pred_ = model(data_)
                 metrics = model.metrics(pred_, data_)
 
-                severity_err[severity - 1, 0, idx] = metrics['R_error'].cpu().data
-                severity_err[severity - 1, 1, idx] = metrics['long_error'].cpu().data
-                severity_err[severity - 1, 2, idx] = metrics['lat_error'].cpu().data
+                if severity not in severity_err:
+                    severity_err[severity] = []
+                severity_err[severity].append(torch.stack([metrics['R_error'].cpu().data, metrics['long_error'].cpu().data, metrics['lat_error'].cpu().data])) # (3, B)
 
                 del pred_, data_
+
+        for severity in severity_err.keys():
+            severity_err[severity] = torch.concat(severity_err[severity], dim=-1).permute(1, 0) # (N x B, 3)
         total_err[corruption] = severity_err
 
     # print
     for corruption, severity_err in total_err.items():
         logger.info(f'[corruption: {corruption}]')
-        for severity in range(5):
-            err = severity_err[severity]
-            logger.info(f'- [{severity + 1}] acc of lat<=1:{torch.sum(err[2] <= 1) / err[2].size(0)}')
-            logger.info(f'- [{severity + 1}] acc of long<=1:{torch.sum(err[1] <= 1) / err[1].size(0)}')
-            logger.info(f'- [{severity + 1}] acc of R<=1:{torch.sum(err[0] <= 1) / err[0].size(0)}')
 
-            logger.info(f'- [{severity + 1}] mean errR:{torch.mean(err[0])}, errlat:{torch.mean(err[2])}, errlong:{torch.mean(err[1])}')
-            logger.info(f'- [{severity + 1}] var errR:{torch.var(err[0])}, errlat:{torch.var(err[2])}, errlong:{torch.var(err[1])}')
-            logger.info(f'- [{severity + 1}] median errR:{torch.median(err[0])}, errlat:{torch.median(err[2])}, errlong:{torch.median(err[1])}')
+        err_lat = []
+        err_lon = []
+        err_rot = []
+        for severity, err in severity_err.items():
+            n = err.size(0)
+            logger.info(f'- [{severity}] acc of lat<=1:{torch.sum(err[:, 2] <= 1) / n}')
+            logger.info(f'- [{severity}] acc of long<=1:{torch.sum(err[:, 1] <= 1) / n}')
+            logger.info(f'- [{severity}] acc of R<=1:{torch.sum(err[:, 0] <= 1) / n}')
 
-        sum_err = torch.sum(severity_err <= 1, dim=[0, 2])
-        logger.info(f'- [total] acc of lat<=1:{sum_err[2] / (5 * severity_err.size(2))}')
-        logger.info(f'- [total] acc of long<=1:{sum_err[1] / (5 * severity_err.size(2))}')
-        logger.info(f'- [total] acc of R<=1:{sum_err[0] / (5 * severity_err.size(2))}')
+            logger.info(f'- [{severity}] mean errR:{torch.mean(err[:, 0])}, errlat:{torch.mean(err[:, 2])}, errlong:{torch.mean(err[:, 1])}')
+            logger.info(f'- [{severity}] var errR:{torch.var(err[:, 0])}, errlat:{torch.var(err[:, 2])}, errlong:{torch.var(err[:, 1])}')
+            logger.info(f'- [{severity}] median errR:{torch.median(err[:, 0])}, errlat:{torch.median(err[:, 2])}, errlong:{torch.median(err[:, 1])}')
 
-        logger.info(f'- [total] mean errR:{torch.mean(severity_err[:, 0, :])}, errlat:{torch.mean(severity_err[:, 2, :])}, errlong:{torch.mean(severity_err[:, 1, :])}')
-        logger.info(f'- [total] var errR:{torch.var(severity_err[:, 0, :])}, errlat:{torch.var(severity_err[:, 2, :])}, errlong:{torch.var(severity_err[:, 1, :])}')
-        logger.info(f'- [total] median errR:{torch.median(severity_err[:, 0, :])}, errlat:{torch.median(severity_err[:, 2, :])}, errlong:{torch.median(severity_err[:, 1, :])}')
+            err_lat.append(err[:, 2])
+            err_lon.append(err[:, 1])
+            err_rot.append(err[:, 0])
 
+        err_lat = torch.concat(err_lat, dim=0)
+        err_lon = torch.concat(err_lon, dim=0)
+        err_rot = torch.concat(err_rot, dim=0)
+
+        logger.info(f'- [total] acc of lat<=1:{torch.sum(err_lat <= 1) / err_lat.size(0)}')
+        logger.info(f'- [total] acc of long<=1:{torch.sum(err_lon <= 1) / err_lon.size(0)}')
+        logger.info(f'- [total] acc of R<=1:{torch.sum(err_rot <= 1) / err_rot.size(0)}')
+
+        logger.info(f'- [total] mean errR:{torch.mean(err_rot)}, errlat:{torch.mean(err_lat)}, errlong:{torch.mean(err_lon)}')
+        logger.info(f'- [total] var errR:{torch.var(err_rot)}, errlat:{torch.var(err_lat)}, errlong:{torch.var(err_lon)}')
+        logger.info(f'- [total] median errR:{torch.median(err_rot)}, errlat:{torch.median(err_lat)}, errlong:{torch.median(err_lon)}')
     return
 
 def test(rank, conf, output_dir, args, wandb_logger=None):
@@ -257,6 +272,8 @@ def test(rank, conf, output_dir, args, wandb_logger=None):
     else:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+    with open_dict(conf):
+        conf.model.optimizer.max_num_points3D = conf.data.max_num_points3D
     model = load_experiment(args.experiment, conf, ckpt=f'/ws/external/outputs/training/{args.experiment}/checkpoint_best.tar').to(device)
 
     data_conf = copy.deepcopy(conf.data)

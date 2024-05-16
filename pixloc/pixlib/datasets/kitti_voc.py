@@ -168,6 +168,9 @@ class _Corruption_Dataset(Dataset):
         self.satmap_dir = 'satmap_'+str(self.satmap_zoom)
         self.sat_pair = np.load(os.path.join(self.ori_root, grdimage_dir, 'groundview_satellite_pair_'+str(self.satmap_zoom)+'.npy'), allow_pickle=True)
 
+        # voc_severity
+        self.voc_severity = [1,2,3,4,5]
+
         # read form txt files
         self.file_name = []
         txt_file_name = os.path.join(self.ori_root, grdimage_dir, 'kitti_split', 'test_files.txt')
@@ -176,12 +179,13 @@ class _Corruption_Dataset(Dataset):
             for line in lines:
                 line = line.strip()
                 # check grb file exist
-                for severity in range(1, 6):
+                for severity in self.voc_severity:
                     grb_file_name = os.path.join(self.voc_root, str(severity), line[:38], left_color_camera_dir,
                                                       line[38:].lower())
                     if not os.path.exists(grb_file_name):
                         # ignore frames with out velodyne
                         print(grb_file_name + ' do not exist!!!')
+                        self.voc_severity.remove(severity)
                         continue
 
                 velodyne_file_name = os.path.join(self.ori_root, grdimage_dir, line[:38], vel_dir,
@@ -233,7 +237,7 @@ class _Corruption_Dataset(Dataset):
 
         # ground images, left color camera
         severity_images = {}
-        for severity in range(1, 6):
+        for severity in self.voc_severity:
             left_img_name = os.path.join(self.voc_root, str(severity), drive_dir, left_color_camera_dir, image_no.lower())
             with Image.open(left_img_name, 'r') as GrdImg:
                 grd_left = GrdImg.convert('RGB')

@@ -55,6 +55,7 @@ class TwoViewRefiner3D(BaseModel):
             'attention': False,
             'opt_list': False,
             'jacobian': False,
+            "geo_proj": 'pointnet2.1',
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
