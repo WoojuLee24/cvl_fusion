@@ -435,7 +435,7 @@ class NNrefinev1_0(nn.Module):
             self.cin = [c * 4 for c in self.cin]
         elif self.args.version in [1.2]:
             self.cin = [c * 3 for c in self.cin]
-        elif self.args.version in [1.3, 1.4]:
+        elif self.args.version in [1.3, 1.4, 1.5, 1.6]:
             self.cin = [c * 4 for c in self.cin]
 
         if self.args.jacobian:
@@ -539,6 +539,41 @@ class NNrefinev1_0(nn.Module):
             ref_geofeat = torch.nn.functional.normalize(ref_geofeat, dim=-1)            # normalization
             r2 = torch.cat([ref_geofeat, p3D_ref_geofeat], dim=-1)
             r2 = self.r2p(r2)
+
+            r = torch.cat([r1, r2], dim=-1)
+
+        elif self.args.version == 1.5:
+            # RGB vs RGB
+            p3D_ref_feat = self.linearp(p3D_ref.contiguous())
+            p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)          # normalization
+            r1 = torch.cat([query_feat - ref_feat, p3D_ref_feat], dim=-1)
+            r1 = r1 + self.r1p(r1)
+
+            # RGB vs LiDAR
+            p3D_ref_geofeat = self.lidarp(p3D_ref.contiguous())
+            ref_geofeat = self.rgbp(ref_feat)
+            p3D_ref_geofeat = torch.nn.functional.normalize(p3D_ref_geofeat, dim=-1)    # normalization
+            ref_geofeat = torch.nn.functional.normalize(ref_geofeat, dim=-1)            # normalization
+            r2 = torch.cat([ref_geofeat, p3D_ref_geofeat], dim=-1)
+            r2 = r2 + self.r2p(r2)
+
+            r = torch.cat([r1, r2], dim=-1)
+
+
+        elif self.args.version == 1.6:
+            # RGB vs RGB
+            p3D_ref_feat = self.linearp(p3D_ref.contiguous())
+            p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)          # normalization
+            r1 = torch.cat([query_feat - ref_feat, p3D_ref_feat], dim=-1)
+            r1 = r1 + self.r1p(r1)
+
+            # RGB vs LiDAR
+            p3D_ref_geofeat = self.lidarp(p3D_ref.contiguous())
+            # ref_geofeat = self.rgbp(ref_feat)
+            p3D_ref_geofeat = torch.nn.functional.normalize(p3D_ref_geofeat, dim=-1)    # normalization
+            # ref_geofeat = torch.nn.functional.normalize(ref_geofeat, dim=-1)            # normalization
+            r2 = torch.cat([ref_feat, p3D_ref_geofeat], dim=-1)
+            r2 = r2 + self.r2p(r2)
 
             r = torch.cat([r1, r2], dim=-1)
 
