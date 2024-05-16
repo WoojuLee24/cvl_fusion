@@ -5,7 +5,7 @@ from angle_func import convert_body_yaw_to_360
 from pose_func import quat_from_pose, read_calib_yaml, read_txt, read_numpy
 import gps_coord_func as gps_func
 
-root_folder = "/data/dataset/Ford_AV"
+root_folder = "/ws/data/Ford_AV"
 log_id = "2017-10-26-V2-Log4"
 
 log_folder = os.path.join(root_folder, log_id)
