@@ -32,8 +32,12 @@ def read_numpy(root_folder, file_name):
     return cur_file
 
 def write_numpy(root_folder, file_name, current_file):
+    # if os.path.exists(os.path.join(root_folder, file_name)):
+    #     file_name = file_name[:-4] + "_2.npy"
     with open(os.path.join(root_folder, file_name), 'wb') as f:
         np.save(f, current_file)
+    if os.path.exists(os.path.join(root_folder, file_name[:-4] + "_2.npy")):
+        os.remove(os.path.join(root_folder, file_name[:-4] + "_2.npy"))
 
 def read_csv(root_folder, file_name):
     with open(os.path.join(root_folder, file_name), newline='') as f:

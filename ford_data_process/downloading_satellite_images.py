@@ -17,7 +17,7 @@ from PIL import Image as PILI
 
 root_folder = "/ws/data/Ford_AV"
 
-log_id = "2017-08-04-V2-Log7" # "2017-10-26-V2-Log3" #"2017-07-24-V2-Log4" #"2017-08-04-V2-Log6" #
+log_id = "2017-08-04-V2-Log6" # "2017-10-26-V2-Log3" #"2017-07-24-V2-Log4" #"2017-08-04-V2-Log6" #
 
 log_list = [
             # '2017-07-24-V2-Log1',

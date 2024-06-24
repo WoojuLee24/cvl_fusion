@@ -7,7 +7,7 @@ import gps_coord_func as gps_func
 
 root_folder = "/ws/data/Ford_AV"
 
-log_id = "2017-08-04-V2-Log6" #"2017-10-26-V2-Log6"#
+log_id = "2017-10-26-V2-Log5" # "2017-10-26-V2-Log5" #"2017-10-26-V2-Log6"#
 info_dir = 'info_files'
 
 log_folder = os.path.join(root_folder, log_id, info_dir)
@@ -20,6 +20,12 @@ Geodetic = read_numpy(log_folder, 'satellite_gps_center.npy')
 
 # 1. get the image names
 imageNames = read_txt(log_folder, log_id + '-FL-names.txt')
+# # ignore reconstruction images
+# if '2017-10-26-V2-Log1' == log_id:
+#     imageNames = imageNames[:9660] + imageNames[11261:]
+# if '2017-08-04-V2-Log1' == log_id:
+#     imageNames = imageNames[:8330] + imageNames[9730:]
+
 imageNames.pop(0)
 
 image_times = np.zeros((len(imageNames), 1))
