@@ -27,7 +27,7 @@ points_type = 0 # 0: use 3d points from map, 1: use 3d points from lidar blue
 gt_from_gps = True #ture: pose gt from gps, False: pose gt from NED pose gt
 
 root_dir = "/ws/data/Ford_AV" # your Ford_AV dir
-sat_dir = 'Satellite_Images_18'
+sat_dir = 'Satellite_Images' # 'Satellite_Images_18'
 sat_zoom = 18
 log_id_train = "2017-08-04-V2-Log4"
 log_id_val = "2017-07-24-V2-Log4"

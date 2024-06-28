@@ -31,7 +31,7 @@ oxts_dir = 'oxts/data'
 vel_dir = 'velodyne_points/data'
 
 grd_ori_size = (1200, 1920) # different size in Kitti 375×1242, 370×1224,374×1238, and376×1241, but 375*1242 in calibration
-grd_process_size = (384, 1248)
+grd_process_size = (1200, 1920) # (384, 1248)
 satellite_ori_size = 300
 meter_per_pixel = 1
 

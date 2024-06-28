@@ -329,13 +329,24 @@ if __name__ == '__main__':
         "sampling": 'distance', #'random' #
     }
 
-    if Ford_dataset:
+    conf = {
+        'normalize_dt': False,
+        'optimizer': {'num_iters': 1, },
+    }
+    dataset = 'kaist_kitti' # 'kitti', 'kaist_kitti'
+    ckpt = '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
+    # '/ws/external/outputs/training/LM_LiDAR_itesr5_40x40_30/checkpoint_best.tar'
+    # '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
+    # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
+
+    if dataset == 'ford':
         from pixloc.pixlib.datasets.ford import FordAV
-
         dataset = FordAV(data_conf)
-    else:
+    elif dataset == 'kitti':
         from pixloc.pixlib.datasets.kitti import Kitti
-
+        dataset = Kitti(data_conf)
+    elif dataset == 'kaist_kitti':
+        from pixloc.pixlib.datasets.kaist_kitti import Kitti
         dataset = Kitti(data_conf)
 
     torch.set_grad_enabled(False);
@@ -346,14 +357,8 @@ if __name__ == '__main__':
 
     # Name of the example experiment. Replace with your own training experiment.
     device = 'cuda'
-    conf = {
-        'normalize_dt': False,
-        'optimizer': {'num_iters': 1, },
-    }
     # refiner = load_experiment(exp, conf, get_last=True).to(device)
-    refiner = load_experiment(exp, conf,
-                              ckpt='/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
-                              ).to(device)
+    refiner = load_experiment(exp, conf, ckpt=ckpt).to(device)
     save_path = '/ws/external/visualizations/features' # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
     if not os.path.exists(save_path):
         os.makedirs(save_path)

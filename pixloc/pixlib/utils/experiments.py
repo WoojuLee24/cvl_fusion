@@ -68,6 +68,7 @@ def load_experiment(exper, conf={}, get_last=False, ckpt=None):
     loaded_conf = OmegaConf.create(ckpt['conf'])
     OmegaConf.set_struct(loaded_conf, False)
     # conf = OmegaConf.merge(loaded_conf.model, OmegaConf.create(conf))
+    conf = OmegaConf.merge(loaded_conf, OmegaConf.create(conf))
     model = get_model(conf.model.name)(conf.model).eval()
 
     state_dict = ckpt['model']
