@@ -98,7 +98,7 @@ class NNOptimizer3D(BaseOptimizer):
         failed = torch.full(T.shape, False, dtype=torch.bool, device=T.device)
 
         lambda_ = self.dampingnet()
-        shiftxyr = torch.zeros_like(shift_range)
+        # shiftxyr = torch.zeros_like(shift_range)
         T_opt_list = []
 
         for i in range(self.conf.num_iters):
@@ -147,7 +147,7 @@ class NNOptimizer3D(BaseOptimizer):
                 mul_range = mul_range.to(shift_range.device)
                 shift_range = shift_range * mul_range
                 delta = delta * shift_range.detach()
-                shiftxyr += delta
+                # shiftxyr += delta
 
                 dt, dw = delta.split([2, 1], dim=-1)
                 B = dw.size(0)
@@ -177,9 +177,9 @@ class NNOptimizer3D(BaseOptimizer):
             logger.debug('One batch element had too few valid points.')
 
         if self.conf.opt_list == True:
-            return T_opt_list, failed, shiftxyr
+            return T_opt_list, failed # , shiftxyr
         else:
-            return T, failed, shiftxyr
+            return T, failed # , shiftxyr
 
 
 class NNrefinev0_1(nn.Module):

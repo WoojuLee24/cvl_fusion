@@ -107,7 +107,7 @@ class FordAV(BaseDataset):
     default_conf = {
         'two_view': True,
         'seed': 0,
-        'max_num_points3D': 15000,
+        'max_num_points3D': 5000, # 15000,
         'force_num_points3D': False,
     }
 
@@ -336,10 +336,10 @@ class _Dataset(Dataset):
 
         # init and gt pose~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ramdom shift translation and rotation on yaw
-        YawShiftRange = 30 * np.pi / 180  # in 10 degree
+        YawShiftRange = 15 * np.pi / 180 # 30 * np.pi / 180  # in 10 degree
         yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
         R_yaw = torch.tensor([[np.cos(yaw),-np.sin(yaw),0],  [np.sin(yaw),np.cos(yaw),0], [0, 0, 1]])
-        TShiftRange = 10  # in 5 meter
+        TShiftRange = 5 # 10  # in 5 meter
         T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
         T[2] = 0  # no shift on height
         #print(f'in dataset: yaw:{yaw/np.pi*180},t:{T}')
@@ -347,12 +347,16 @@ class _Dataset(Dataset):
         # add random yaw and t to init pose
         init_shift = Pose.from_Rt(R_yaw,T).float()
         cam2sat_init = init_shift@cam2sat
+        shift_gt = np.array([T[0], T[1], yaw])
+        shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
         data = {
             'ref': sat_image,
             'query': FL_image,
             'T_q2r_init': cam2sat_init,
             'T_q2r_gt': cam2sat,
+            'shift_gt': shift_gt,
+            'shift_range': shift_range,
         }
 
         # debug

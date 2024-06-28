@@ -147,13 +147,16 @@ class TwoViewRefiner3D(BaseModel):
                 F_q = (F_q - F_q.mean(dim=2, keepdim=True)) / (F_q.std(dim=2, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
-            T_opt, failed, shiftxyr = opt(dict(
+            # T_opt, failed, shiftxyr = opt(dict(
+            #     p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
+            #     mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
+            T_opt, failed = opt(dict(
                 p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
                 mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
 
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
-            pred['shiftxyr'].append(shiftxyr)
+            # pred['shiftxyr'].append(shiftxyr)
 
             if self.conf.optimizer.opt_list:
                 if self.conf.optimizer.cascade:
