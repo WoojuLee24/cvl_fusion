@@ -109,6 +109,8 @@ class FordAV(BaseDataset):
         'seed': 0,
         'max_num_points3D': 5000, # 15000,
         'force_num_points3D': False,
+        'rot_range': 15,
+        'trans_range': 5,
     }
 
     def _init(self, conf):
@@ -336,10 +338,10 @@ class _Dataset(Dataset):
 
         # init and gt pose~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ramdom shift translation and rotation on yaw
-        YawShiftRange = 15 * np.pi / 180 # 30 * np.pi / 180  # in 10 degree
+        YawShiftRange = self.conf.rot_range * np.pi / 180 # 30 * np.pi / 180  # in 10 degree
         yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
         R_yaw = torch.tensor([[np.cos(yaw),-np.sin(yaw),0],  [np.sin(yaw),np.cos(yaw),0], [0, 0, 1]])
-        TShiftRange = 5 # 10  # in 5 meter
+        TShiftRange = self.conf.trans_range # 10  # in 5 meter
         T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
         T[2] = 0  # no shift on height
         #print(f'in dataset: yaw:{yaw/np.pi*180},t:{T}')
@@ -350,6 +352,10 @@ class _Dataset(Dataset):
         shift_gt = np.array([T[0], T[1], yaw])
         shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
+        # statistics
+        mean = np.array([[-0.9385, -1.5508, 39.8347]], dtype=np.float32)
+        std = np.array([[13.8230, 3.2336, 20.3449]], dtype=np.float32)
+
         data = {
             'ref': sat_image,
             'query': FL_image,
@@ -357,6 +363,8 @@ class _Dataset(Dataset):
             'T_q2r_gt': cam2sat,
             'shift_gt': shift_gt,
             'shift_range': shift_range,
+            'mean': mean,
+            'std': std
         }
 
         # debug

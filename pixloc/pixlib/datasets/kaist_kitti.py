@@ -346,6 +346,12 @@ class _Dataset(Dataset):
         shift_gt = np.array([T[0], T[1], yaw])
         shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
+        # statistics
+        mean = np.array([[0, 0, 95.3919]], dtype=np.float32)
+        std = np.array([[22.4492, 6.3773, 36.7385]], dtype=np.float32)
+        # mean = np.array([[-6.9251, -4.0433, 95.3919]])
+        # std = np.array([[22.4492, 6.3773, 36.7385]])
+
         data = {
             'ref': sat_image,
             'query': grd_image,
@@ -353,6 +359,8 @@ class _Dataset(Dataset):
             'T_q2r_gt': q2r_gt.float(),
             'shift_gt': shift_gt,
             'shift_range': shift_range,
+            'mean': mean,
+            'std': std
         }
 
         # debug

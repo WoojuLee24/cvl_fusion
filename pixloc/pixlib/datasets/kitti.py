@@ -350,6 +350,10 @@ class _Dataset(Dataset):
         shift_gt = np.array([T[0], T[1], yaw])
         shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
+        # statistics
+        mean = np.array([[-0.1917,  0.9250, 15.6600]], dtype=np.float32)
+        std = np.array([[6.9589,  0.8642, 11.5166]], dtype=np.float32)
+
         # scene
         scene = drive_dir[:4] + drive_dir[5:7] + drive_dir[8:10] + drive_dir[28:32] + image_no[:10]
 
@@ -360,6 +364,8 @@ class _Dataset(Dataset):
             'T_q2r_gt': q2r_gt.float(),
             'shift_gt': shift_gt,
             'shift_range': shift_range,
+            'mean': mean,
+            'std': std
         }
 
         # debug
