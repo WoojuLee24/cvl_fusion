@@ -23,17 +23,17 @@ from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
 from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
 
-root_dir = "/ws/data/Kaist_Kitti" # your kitti dir
+root_dir = "/ws/data/gazebo_kitti" # your kitti dir
 satmap_dir = 'satmap'
 grdimage_dir = 'raw_data'
-left_color_camera_dir = 'image/data'
+left_color_camera_dir = 'image_02/data'
 oxts_dir = 'oxts/data'
 vel_dir = 'velodyne_points/data'
 
-grd_ori_size = (1200, 1920) # different size in Kitti 375×1242, 370×1224,374×1238, and376×1241, but 375*1242 in calibration
-grd_process_size = (600, 960) # (1200, 1920) # (384, 1248)
+grd_ori_size = (375, 1242) # different size in Kitti 375×1242, 370×1224,374×1238, and376×1241, but 375*1242 in calibration
+grd_process_size = (375, 1242) # (1200, 1920) # (384, 1248)
 satellite_ori_size = 1280
-meter_per_pixel = 0.25
+meter_per_pixel = 0.078
 
 ToTensor = transforms.Compose([
     transforms.ToTensor()])
@@ -153,14 +153,14 @@ class _Dataset(Dataset):
             for line in lines:
                 line = line.strip()
                 # check grb file exist
-                grb_file_name = os.path.join(self.root, grdimage_dir, left_color_camera_dir, line.lower())
+                grb_file_name = os.path.join(self.root, grdimage_dir, line[:-14], left_color_camera_dir, line[-14:])
                 if not os.path.exists(grb_file_name):
                     # ignore frames with out velodyne
                     print(grb_file_name + ' do not exist!!!')
                     continue
 
-                velodyne_file_name = os.path.join(self.root, grdimage_dir, vel_dir,
-                                                  line.lower().replace('.png', '.bin'))
+                velodyne_file_name = os.path.join(self.root, grdimage_dir, line[:-14], vel_dir,
+                                                  line[-14:].lower().replace('.png', '.bin'))
                 if not os.path.exists(velodyne_file_name):
                     # ignore frames with out velodyne
                     print(velodyne_file_name + ' do not exist!!!')
@@ -191,21 +191,21 @@ class _Dataset(Dataset):
         camera_center_loc = -imu2camera.transform(np.array([0.,0.,0.]))
 
         # get location & rotation
-        oxts_file_name = os.path.join(self.root, grdimage_dir, oxts_dir,
-                                      image_no.lower().replace('.png', '.txt'))
+        oxts_file_name = os.path.join(self.root, grdimage_dir, image_no[:-14], oxts_dir,
+                                      image_no[-14:].lower().replace('.png', '.txt'))
         with open(oxts_file_name, 'r') as f:
             content = f.readline().split(' ')
         location = [float(content[0]), float(content[1]), float(content[2])]
         roll, pitch, heading = float(content[3]), float(content[4]), float(content[5])
 
         # read lidar points
-        velodyne_file_name = os.path.join(self.root, grdimage_dir, vel_dir,
-                                      image_no.lower().replace('.png', '.bin'))
+        velodyne_file_name = os.path.join(self.root, grdimage_dir, image_no[:-14], vel_dir,
+                                          image_no[-14:].lower().replace('.png', '.bin'))
         velodyne = np.fromfile(velodyne_file_name, dtype=np.float32).reshape(-1, 4)
         velodyne[:, 3] = 1.0
 
         # ground images, left color camera
-        left_img_name = os.path.join(self.root, grdimage_dir, left_color_camera_dir, image_no.lower())
+        left_img_name = os.path.join(self.root, grdimage_dir, image_no[:-14], left_color_camera_dir, image_no[-14:].lower())
         with Image.open(left_img_name, 'r') as GrdImg:
             grd_left = GrdImg.convert('RGB')
             grd_ori_H = grd_left.size[1]
@@ -249,7 +249,7 @@ class _Dataset(Dataset):
             q2r_gt = grd2sat @ (grd2cam.inv())
 
         # satellite map
-        SatMap_name = self.sat_pair.item().get(os.path.join(left_color_camera_dir, file_name))
+        SatMap_name = self.sat_pair.item().get(os.path.join(file_name))
         extension = SatMap_name.split('.')[-1]
         SatMap_name = '.'.join(SatMap_name.split('.')[:-1])
 
@@ -290,7 +290,7 @@ class _Dataset(Dataset):
         grd_image['points3D_type'] = 'lidar'
 
         # max distance is 240 meter
-        mask = key_points[:, 2] < 240.0
+        mask = key_points[:, 2] < 100.0
         key_points = key_points[mask]
 
         num_diff = self.conf.max_num_points3D - len(key_points)
@@ -370,9 +370,9 @@ class _Dataset(Dataset):
         # debug
         if 0:
             image = transforms.functional.to_pil_image(grd_left, mode='RGB')
-            image.save(f'/ws/data/Kaist_Kitti/debug_images/grd_{idx}.png')
+            image.save(f'/ws/data/kaist_mobile/debug_images/grd_{idx}.png')
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
-            image.save(f'/ws/data/Kaist_Kitti/debug_images/sat_{idx}.png')
+            image.save(f'/ws/data/kaist_mobile/debug_images/sat_{idx}.png')
         if 0:
             def distance_to_color(distance, min_distance, max_distance):
                 # Normalize the distance to be within [0, 1]
@@ -453,8 +453,8 @@ class _Dataset(Dataset):
             plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=10)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.show()
-            plt.savefig(f'/ws/data/Kaist_Kitti/debug_images/pointcloud_{idx}.png')
+            # plt.show()
+            plt.savefig(f'/ws/data/kaist_mobile/debug_images/pointcloud_{idx}.png')
             print(idx,file_name, pitch, roll)
 
         return data

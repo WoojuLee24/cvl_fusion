@@ -162,76 +162,80 @@ def Val(refiner, val_loader, save_path, best_result):
             g2s = torch.nn.functional.grid_sample(
                 imq1.cuda().unsqueeze(dim=0), uv.unsqueeze(dim=0), mode='bilinear', align_corners=True)
 
-            plot_images([g2s[0].permute(1, 2, 0).cpu()], dpi=100)
-            if SavePlt:
-                save_plot(save_path + f'/gt_g2s.png')
+            # plot_images([g2s[0].permute(1, 2, 0).cpu()], dpi=100)
+            # if SavePlt:
+            #     save_plot(save_path + f'/gt_g2s.png')
+            #
+            # plot_valid_points(imr, imr, p2D_r_gt[valid], p2D_r_gt[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/validgt_sat_points.png')
+            #
+            # plot_valid_points(imr, imr, p2D_r_opt[valid], p2D_r_opt[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/validopt_sat_points.png')
+            #
+            # plot_valid_points(imr, imr, p2D_r_init[valid], p2D_r_init[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/validinit_sat_points.png')
+            #
+            # plot_valid_points(imr, imq, p2D_r_gt[valid], p2D_q[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/validgt_g2s_points.png')
+            #
+            # plot_valid_points(imr, imq, p2D_r_init[valid], p2D_q[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/validinit_g2s_points.png')
+            #
+            # plot_valid_points(imr, imq, p2D_r_opt[valid], p2D_q[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/validopt_g2s_points.png')
+            #
+            # plot_valid_points(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_r_gt[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/lidargt_sat_points.png')
+            #
+            # plot_valid_points(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_q[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/lidargt_g2s_points.png')
+            #
+            # plot_valid_points(imr, torch.ones_like(imr), p2D_r_init[valid], p2D_r_init[valid])
+            # if SavePlt:
+            #     save_plot(save_path + f'/lidarinit_sat_points.png')
+            #
+            # # feature & confidence
+            # for i, (F0, F1) in enumerate(zip(pred['ref']['feature_maps'], pred['query']['feature_maps'])):
+            #     C_r, C_q = pred['ref']['confidences'][i][0], pred['query']['confidences'][i][0]
+            #     C_r = min_max_norm(C_r)
+            #     C_q = min_max_norm(C_q)
+            #     # plot_images([C_r], cmaps=mpl.cm.gnuplot2, dpi=50)
+            #     plot_images([C_r], dpi=50)
+            #     axes = plt.gcf().axes
+            #     axes[0].imshow(imr, alpha=0.2, extent=axes[0].images[0]._extent)
+            #     if SavePlt:
+            #         save_plot(save_path + f'/c_s_0_{i}.png')
+            #     plt.show()
+            #     # plot_images([C_q], cmaps=mpl.cm.gnuplot2, dpi=50)
+            #     plot_images([C_q], dpi=50)
+            #     axes = plt.gcf().axes
+            #     axes[0].imshow(imq, alpha=0.2, extent=axes[0].images[0]._extent)
+            #     if SavePlt:
+            #         save_plot(save_path + f'/c_g_0_{i}.png')
+            #     plt.show()
+            #
+            #     print(F0.dtype, torch.min(F0), torch.max(F0))
+            #     print(F1.dtype, torch.min(F1), torch.max(F1))
+            #     plot_images(features_to_RGB(F0.numpy(), skip=1), dpi=50)
+            #     if SavePlt:
+            #         save_plot(save_path + f'/f_s_{i}.png')
+            #     plt.show()
+            #     plot_images(features_to_RGB(F1.numpy(), skip=1), dpi=50)
+            #     if SavePlt:
+            #         save_plot(save_path + f'/f_g_{i}.png')
+            #     plt.show()
 
-            plot_valid_points(imr, imr, p2D_r_gt[valid], p2D_r_gt[valid])
-            if SavePlt:
-                save_plot(save_path + f'/validgt_sat_points.png')
 
-            plot_valid_points(imr, imr, p2D_r_opt[valid], p2D_r_opt[valid])
-            if SavePlt:
-                save_plot(save_path + f'/validopt_sat_points.png')
 
-            plot_valid_points(imr, imr, p2D_r_init[valid], p2D_r_init[valid])
-            if SavePlt:
-                save_plot(save_path + f'/validinit_sat_points.png')
 
-            plot_valid_points(imr, imq, p2D_r_gt[valid], p2D_q[valid])
-            if SavePlt:
-                save_plot(save_path + f'/validgt_g2s_points.png')
-
-            plot_valid_points(imr, imq, p2D_r_init[valid], p2D_q[valid])
-            if SavePlt:
-                save_plot(save_path + f'/validinit_g2s_points.png')
-
-            plot_valid_points(imr, imq, p2D_r_opt[valid], p2D_q[valid])
-            if SavePlt:
-                save_plot(save_path + f'/validopt_g2s_points.png')
-
-            plot_valid_points(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_r_gt[valid])
-            if SavePlt:
-                save_plot(save_path + f'/lidargt_sat_points.png')
-
-            plot_valid_points(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_q[valid])
-            if SavePlt:
-                save_plot(save_path + f'/lidargt_g2s_points.png')
-
-            plot_valid_points(imr, torch.ones_like(imr), p2D_r_init[valid], p2D_r_init[valid])
-            if SavePlt:
-                save_plot(save_path + f'/lidarinit_sat_points.png')
-
-            # feature & confidence
-            for i, (F0, F1) in enumerate(zip(pred['ref']['feature_maps'], pred['query']['feature_maps'])):
-                C_r, C_q = pred['ref']['confidences'][i][0], pred['query']['confidences'][i][0]
-                C_r = min_max_norm(C_r)
-                C_q = min_max_norm(C_q)
-                # plot_images([C_r], cmaps=mpl.cm.gnuplot2, dpi=50)
-                plot_images([C_r], dpi=50)
-                axes = plt.gcf().axes
-                axes[0].imshow(imr, alpha=0.2, extent=axes[0].images[0]._extent)
-                if SavePlt:
-                    save_plot(save_path + f'/c_s_0_{i}.png')
-                plt.show()
-                # plot_images([C_q], cmaps=mpl.cm.gnuplot2, dpi=50)
-                plot_images([C_q], dpi=50)
-                axes = plt.gcf().axes
-                axes[0].imshow(imq, alpha=0.2, extent=axes[0].images[0]._extent)
-                if SavePlt:
-                    save_plot(save_path + f'/c_g_0_{i}.png')
-                plt.show()
-
-                print(F0.dtype, torch.min(F0), torch.max(F0))
-                print(F1.dtype, torch.min(F1), torch.max(F1))
-                plot_images(features_to_RGB(F0.numpy(), skip=1), dpi=50)
-                if SavePlt:
-                    save_plot(save_path + f'/f_s_{i}.png')
-                plt.show()
-                plot_images(features_to_RGB(F1.numpy(), skip=1), dpi=50)
-                if SavePlt:
-                    save_plot(save_path + f'/f_g_{i}.png')
-                plt.show()
                 # plot_images(F0.numpy(), dpi=50)
                 # if SavePlt:
                 #     save_plot(save_path + f'/f_s_{i}.png')
@@ -339,6 +343,10 @@ if __name__ == '__main__':
     # '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
     # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
 
+    save_path = f'/ws/external/visualizations/features/{dataset}' # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
     if dataset == 'ford':
         from pixloc.pixlib.datasets.ford import FordAV
         dataset = FordAV(data_conf)
@@ -359,9 +367,7 @@ if __name__ == '__main__':
     device = 'cuda'
     # refiner = load_experiment(exp, conf, get_last=True).to(device)
     refiner = load_experiment(exp, conf, ckpt=ckpt).to(device)
-    save_path = '/ws/external/visualizations/features' # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
+
 
     print(OmegaConf.to_yaml(refiner.conf))
 

@@ -353,6 +353,17 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         best_eval = best_cp['eval'][conf.train.best_key]
         del best_cp
 
+    # elif args.finetune:
+    #     conf.train = OmegaConf.merge(default_train_conf, conf.train)
+    #     epoch = 0
+    #     best_eval = float('inf')
+    #
+    #     logger.info(f'Finetuning from {args.finetune}')
+    #
+    #     # get the best loss or eval metric from the previous best checkpoint
+    #     init_cp = torch.load(args.finetune)
+    #     best_eval = float('inf')
+
     else:
         # we start a new, fresh training
         conf.train = OmegaConf.merge(default_train_conf, conf.train)
@@ -362,7 +373,8 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
             logger.info(
                 f'Will fine-tune from weights of {conf.train.load_experiment}')
             # the user has to make sure that the weights are compatible
-            init_cp = get_last_checkpoint(conf.train.load_experiment)
+            # init_cp = get_last_checkpoint(conf.train.load_experiment)
+            init_cp = os.path.join('/ws/external/outputs/training', conf.train.load_experiment, 'checkpoint_best.tar')
             init_cp = torch.load(str(init_cp), map_location='cpu')
         else:
             init_cp = None
@@ -701,6 +713,7 @@ if __name__ == '__main__':
     parser.add_argument('--conf', type=str)
     parser.add_argument('--overfit', action='store_true', default=False)
     parser.add_argument('--restore', action='store_true', default=False)
+    parser.add_argument('--finetune', type=str, default=False)
     parser.add_argument('--save_every_epoch', action='store_true', default=False, help='test & save every epoch')
     parser.add_argument('--distributed', action='store_true',default=False)
     parser.add_argument('--test', action='store_true', default=False)

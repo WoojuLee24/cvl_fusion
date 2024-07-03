@@ -23,15 +23,15 @@ from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
 from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
 
-root_dir = "/ws/data/Kaist_Kitti" # your kitti dir
+root_dir = "/ws/data/kaist_mobile" # your kitti dir
 satmap_dir = 'satmap'
 grdimage_dir = 'raw_data'
 left_color_camera_dir = 'image/data'
 oxts_dir = 'oxts/data'
 vel_dir = 'velodyne_points/data'
 
-grd_ori_size = (1200, 1920) # different size in Kitti 375×1242, 370×1224,374×1238, and376×1241, but 375*1242 in calibration
-grd_process_size = (600, 960) # (1200, 1920) # (384, 1248)
+grd_ori_size = (480, 640) # different size in Kitti 375×1242, 370×1224,374×1238, and376×1241, but 375*1242 in calibration
+grd_process_size = (480, 640) # (1200, 1920) # (384, 1248)
 satellite_ori_size = 1280
 meter_per_pixel = 0.25
 
@@ -290,7 +290,7 @@ class _Dataset(Dataset):
         grd_image['points3D_type'] = 'lidar'
 
         # max distance is 240 meter
-        mask = key_points[:, 2] < 240.0
+        mask = key_points[:, 2] < 100.0
         key_points = key_points[mask]
 
         num_diff = self.conf.max_num_points3D - len(key_points)
@@ -370,9 +370,9 @@ class _Dataset(Dataset):
         # debug
         if 0:
             image = transforms.functional.to_pil_image(grd_left, mode='RGB')
-            image.save(f'/ws/data/Kaist_Kitti/debug_images/grd_{idx}.png')
+            image.save(f'/ws/data/kaist_mobile/debug_images/grd_{idx}.png')
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
-            image.save(f'/ws/data/Kaist_Kitti/debug_images/sat_{idx}.png')
+            image.save(f'/ws/data/kaist_mobile/debug_images/sat_{idx}.png')
         if 0:
             def distance_to_color(distance, min_distance, max_distance):
                 # Normalize the distance to be within [0, 1]
@@ -453,8 +453,8 @@ class _Dataset(Dataset):
             plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=10)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.show()
-            plt.savefig(f'/ws/data/Kaist_Kitti/debug_images/pointcloud_{idx}.png')
+            # plt.show()
+            plt.savefig(f'/ws/data/kaist_mobile/debug_images/pointcloud_{idx}.png')
             print(idx,file_name, pitch, roll)
 
         return data
