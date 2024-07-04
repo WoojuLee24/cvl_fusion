@@ -24,8 +24,10 @@ from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
 
 root_dir = "/ws/data/gazebo_kitti" # your kitti dir
-satmap_dir = 'satmap'
-grdimage_dir = 'raw_data'
+drive = 'lakepark1'  # 'lakepark1', 'lakepark2', 'lakepark3'
+satmap_dir = f'satmap/2024_07_02/{drive}'
+grdimage_dir = f'raw_data/2024_07_02/{drive}'
+debug_dir = f'debug_images/{drive}'
 left_color_camera_dir = 'image_02/data'
 oxts_dir = 'oxts/data'
 vel_dir = 'velodyne_points/data'
@@ -142,7 +144,7 @@ class _Dataset(Dataset):
     def __init__(self, conf, split):
         self.root = root_dir
         self.conf = conf
-        self.satmap_dir = 'satmap'
+        self.satmap_dir = satmap_dir
         self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair.npy'), allow_pickle=True)
 
         # read form txt files
@@ -375,7 +377,7 @@ class _Dataset(Dataset):
             image.save(f'/ws/data/kaist_mobile/debug_images/grd_{idx}.png')
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
             image.save(f'/ws/data/kaist_mobile/debug_images/sat_{idx}.png')
-        if 0:
+        if 1:
             def distance_to_color(distance, min_distance, max_distance):
                 # Normalize the distance to be within [0, 1]
                 norm_distance = (distance - min_distance) / (max_distance - min_distance)
@@ -460,7 +462,7 @@ class _Dataset(Dataset):
             if not os.path.exists(path):
                 os.makedirs(path)
             plt.savefig(f'/ws/data/gazebo_kitti/debug_images/pointcloud_{idx}.png')
-            print(idx,file_name, pitch, roll)
+            print(idx, file_name, pitch, roll)
 
         return data
 
