@@ -254,7 +254,7 @@ class _Dataset(Dataset):
         SatMap_name = '.'.join(SatMap_name.split('.')[:-1])
 
         sat_gps = SatMap_name.split('_')
-        sat_gps = [float(sat_gps[3]), float(sat_gps[5])]
+        sat_gps = [float(sat_gps[-3]), float(sat_gps[-1])]
         SatMap_name = os.path.join(root_dir, self.satmap_dir, '.'.join([SatMap_name, extension]))
         with Image.open(SatMap_name, 'r') as SatMap:
             sat_map = SatMap.convert('RGB')
@@ -290,8 +290,10 @@ class _Dataset(Dataset):
         grd_image['points3D_type'] = 'lidar'
 
         # max distance is 240 meter
-        mask = key_points[:, 2] < 100.0
-        key_points = key_points[mask]
+        # mask = key_points[:, 2] < 100.0
+        # key_points = key_points[mask]
+        if len(key_points) < 1000 or key_points == None:
+            return None
 
         num_diff = self.conf.max_num_points3D - len(key_points)
         if num_diff < 0:
@@ -351,8 +353,8 @@ class _Dataset(Dataset):
         shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
         # statistics
-        mean = np.array([[0, 0, 95.3919]], dtype=np.float32)
-        std = np.array([[22.4492, 6.3773, 36.7385]], dtype=np.float32)
+        mean = np.array([[0.6607, -0.0052, 3.5180]], dtype=np.float32)
+        std = np.array([[5.3737, 1.3254, 8.3521]], dtype=np.float32)
         # mean = np.array([[-6.9251, -4.0433, 95.3919]])
         # std = np.array([[22.4492, 6.3773, 36.7385]])
 
@@ -454,7 +456,10 @@ class _Dataset(Dataset):
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
             # plt.show()
-            plt.savefig(f'/ws/data/kaist_mobile/debug_images/pointcloud_{idx}.png')
+            path = '/ws/data/gazebo_kitti/debug_images/'
+            if not os.path.exists(path):
+                os.makedirs(path)
+            plt.savefig(f'/ws/data/gazebo_kitti/debug_images/pointcloud_{idx}.png')
             print(idx,file_name, pitch, roll)
 
         return data
@@ -472,5 +477,7 @@ if __name__ == '__main__':
     loader = dataset.get_data_loader('train', shuffle=False)  # or 'train' ‘val’
 
     for it, data in enumerate(loader):
+        if it == 52:
+            pass
         print(it)
 
