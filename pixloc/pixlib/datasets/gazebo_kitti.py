@@ -25,9 +25,9 @@ from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 
 root_dir = "/ws/data/gazebo_kitti" # your kitti dir
 drive = 'lakepark1'  # 'lakepark1', 'lakepark2', 'lakepark3'
-satmap_dir = f'satmap/2024_07_02/{drive}'
-grdimage_dir = f'raw_data/2024_07_02/{drive}'
-debug_dir = f'debug_images/{drive}'
+satmap_dir = f'satmap'
+grdimage_dir = f'raw_data'
+debug_dir = f'debug_images'
 left_color_camera_dir = 'image_02/data'
 oxts_dir = 'oxts/data'
 vel_dir = 'velodyne_points/data'
@@ -377,7 +377,7 @@ class _Dataset(Dataset):
             image.save(f'/ws/data/kaist_mobile/debug_images/grd_{idx}.png')
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
             image.save(f'/ws/data/kaist_mobile/debug_images/sat_{idx}.png')
-        if 1:
+        if 0:
             def distance_to_color(distance, min_distance, max_distance):
                 # Normalize the distance to be within [0, 1]
                 norm_distance = (distance - min_distance) / (max_distance - min_distance)
