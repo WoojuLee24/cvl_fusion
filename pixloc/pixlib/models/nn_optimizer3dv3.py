@@ -64,6 +64,9 @@ class NNOptimizer3D(BaseOptimizer):
         normalize_geometry_feature='l2',
         opt_list=False,
         jacobian=True,
+        kp=1.,
+        kd=1.,
+        ki=1.,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -382,6 +385,7 @@ class NNrefinev1_0(nn.Module):
         self.cin = self.args.input_dim  # [128, 128, 32]
         self.cout = 96
         pointc = self.cin[0]
+        self.initialize_rsum()
 
 
         # positional embedding
@@ -433,6 +437,8 @@ class NNrefinev1_0(nn.Module):
             self.cin = [c * 6 for c in self.cin]    # self.cin = [c * 3 + 2 * pointc for c in self.cin]
         elif self.args.version in [1.01, 1.02, 1.03]:
             self.cin = [c * 5 for c in self.cin]
+        elif self.args.version in [1.04]:
+            self.cin = [c * 7 for c in self.cin]
         elif self.args.version in [1.1]:
             self.cin = [c * 4 for c in self.cin]
         elif self.args.version in [1.2]:
@@ -480,7 +486,7 @@ class NNrefinev1_0(nn.Module):
 
         B, N, C = query_feat.size()
 
-        if self.args.version in [1.0, 1.01, 1.02, 1.03]:    # resconcat2
+        if self.args.version in [1.0, 1.01, 1.02, 1.03, 1.04]:    # resconcat2
             p3D_query_feat = self.linearp(p3D_query.contiguous())
             p3D_ref_feat = self.linearp(p3D_ref.contiguous())
 
@@ -491,18 +497,23 @@ class NNrefinev1_0(nn.Module):
 
             if self.args.version == 1.0:
                 r = torch.cat([query_feat, ref_feat, query_feat - ref_feat,
-                               p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
+                               p3D_query_feat, p3D_ref_feat, self.args.kp * (p3D_query_feat - p3D_ref_feat)], dim=-1)
             elif self.args.version == 1.01:
                 r = torch.cat([ref_feat, query_feat - ref_feat,
-                               p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
+                               p3D_query_feat, p3D_ref_feat, self.args.kp(p3D_query_feat - p3D_ref_feat)], dim=-1)
             elif self.args.version == 1.02:
                 r = torch.cat([query_feat, ref_feat, query_feat - ref_feat,
-                               p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
+                               p3D_ref_feat, self.args.kp(p3D_query_feat - p3D_ref_feat)], dim=-1)
             elif self.args.version == 1.03:
-                r = torch.cat([query_feat, ref_feat, query_feat - ref_feat,
+                r = torch.cat([query_feat, ref_feat, self.args.kp(query_feat - ref_feat),
                                p3D_query_feat, p3D_ref_feat], dim=-1)
-
-
+            elif self.args.version == 1.04:
+                self.r_sum[2-scale] += p3D_query_feat - p3D_ref_feat
+                r = torch.cat([query_feat, ref_feat, query_feat - ref_feat,
+                               p3D_query_feat, p3D_ref_feat,
+                               self.args.kp * (p3D_query_feat - p3D_ref_feat),
+                               self.args.ki * self.r_sum[2-scale]
+                               ], dim=-1)
 
         elif self.args.version == 1.1:
             p3D_query_feat = self.linearp(p3D_query.contiguous())
@@ -573,7 +584,6 @@ class NNrefinev1_0(nn.Module):
 
             r = torch.cat([r1, r2], dim=-1)
 
-
         elif self.args.version == 1.6:
             # RGB vs RGB
             p3D_ref_feat = self.linearp(p3D_ref.contiguous())
@@ -593,7 +603,7 @@ class NNrefinev1_0(nn.Module):
 
         if J is not None:
             J = J.view(B, N, -1)
-            r = torch.cat([r, J], dim=-1)
+            r = torch.cat([r, self.args.kd * J], dim=-1)
 
         B, N, C = r.shape
         if 2-scale == 0:
@@ -616,6 +626,9 @@ class NNrefinev1_0(nn.Module):
         y = self.mapping(x)  # [B, 3]
 
         return y
+
+    def initialize_rsum(self):
+        self.r_sum = {0: 0, 1: 0, 2:0}
 
 # class PositionalEncoder(nn.Module):
 #     def __init__(self, d_model=128, max_len=1024, type='mlp'):

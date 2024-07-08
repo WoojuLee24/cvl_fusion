@@ -55,6 +55,9 @@ class TwoViewRefiner3D(BaseModel):
             'attention': False,
             'opt_list': False,
             'jacobian': True,
+            'kp': 1.,
+            'kd': 1.,
+            'ki': 1.,
             "geo_proj": 'none',
         },
         'duplicate_optimizer_per_scale': False,
@@ -109,7 +112,7 @@ class TwoViewRefiner3D(BaseModel):
         pred['T_q2r_opt'] = []
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
-
+        self.optimizer.nnrefine.initialize_rsum()   # for I controller
 
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
