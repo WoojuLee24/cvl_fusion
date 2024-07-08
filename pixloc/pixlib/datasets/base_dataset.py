@@ -118,6 +118,7 @@ class BaseDataset(metaclass=ABCMeta):
         'seed': 0,
         'aug': 'none',
         'aug_severity': 3,
+        'part': 1,
     }
     default_conf = {}
 

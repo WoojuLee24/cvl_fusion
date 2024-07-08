@@ -172,6 +172,10 @@ class _Dataset(Dataset):
 
                 self.file_name.append(line)
 
+        if self.conf.part < 1.0:
+            indexes = int(len(self.file_name) * self.conf.part)
+            self.file_name = self.file_name[:indexes]
+
     def __len__(self):
         return len(self.file_name)
 
