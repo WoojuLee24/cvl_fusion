@@ -569,10 +569,10 @@ def project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, data):
     p3d_s = cam_ref.image2world(uv)
     p3d_s[..., -1] = torch.ones_like(p3d_s[..., -1])
     # p3d_q = torch.einsum('bij,bhwj->...bhwi', T.inv().R, p3d_c)  # query world coordinate
-    p3d_s2g = T.inv() * p3d_s
+    p3d_s2g = T.inv() * p3d_s.reshape(-1, a * a, 3)
 
     p2d_s2g, mask_s2g = cam_q.world2image(data['query']['T_w2cam'] * p3d_s2g)
-    p2d_s2g = p2d_s2g.reshape(-1, a * a, 2)
+    # p2d_s2g = p2d_s2g.reshape(-1, a * a, 2)
     F_q2r, mask_q2r, grad_q2r = interpolate_tensor(F_query, p2d_s2g,
                                                    'linear', pad=4, return_gradients=True, out_shape='bcn')
     F_q2r, mask_q2r = F_q2r.reshape(-1, c, a, a), mask_q2r.reshape(-1, 1, a, a)
@@ -595,8 +595,8 @@ def project_map_to_grd(T, cam_q, cam_ref, F_query, F_ref, data):
     p3d_g2s = torch.einsum('bij,bhwj->...bhwi', T.R, p3d_grd)  # query world coordinate
     # p3d_grd_q = T * p3d_grd_q
 
-    p2d_g2s, mask_g2s = cam_ref.world2image2(data['ref']['T_w2cam'] * p3d_g2s)
-    p2d_g2s = p2d_g2s.reshape(-1, h * w, 2)
+    p2d_g2s, mask_g2s = cam_ref.world2image2(data['ref']['T_w2cam'] * p3d_g2s.reshape(-1, h * w, 3))
+    # p2d_g2s = p2d_g2s.reshape(-1, h * w, 2)
     F_r2q, mask_r2q, grad_r2q = interpolate_tensor(F_ref, p2d_g2s,
                                                    'linear', pad=4, return_gradients=True, out_shape='bcn')
     F_r2q, mask_r2q = F_r2q.reshape(-1, c, h, w), mask_r2q.reshape(-1, 1, h, w)

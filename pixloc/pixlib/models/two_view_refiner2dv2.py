@@ -7,6 +7,7 @@ from torch.nn import functional as nnF
 import logging
 from copy import deepcopy
 import omegaconf
+import itertools
 import numpy as np
 
 from pixloc.pixlib.models.base_model import BaseModel
@@ -115,11 +116,16 @@ class TwoViewRefiner2D(BaseModel):
         # pred['uv_gt'] = []
         pred['pose_loss'] = []
 
-        if 1:
-            q2r_img, q2r_mask, _, _= project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
+        r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(),
+                                                           data['ref']['camera'].cuda(),
+                                                           data['query']['image'], data['ref']['image'], data)
+        data['query']['points3D'] = p3d_grd
+
+        if 0:
+            r2q_img, r2q_mask, p3d_grd, _= project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
                                          data['query']['image'], data['ref']['image'], data)
 
-            r2q_img, r2q_mask, _, _ = project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
+            q2r_img, q2r_mask, _, _ = project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
                                          data['query']['image'], data['ref']['image'], data)
 
             from pixloc.visualization.viz_2d import imsave
@@ -128,8 +134,9 @@ class TwoViewRefiner2D(BaseModel):
             imsave(data['ref']['image'][0], '/ws/external/visualizations/dense', '0sat')
             imsave(r2q_img[0], '/ws/external/visualizations/dense', '1r2q')
             imsave(data['query']['image'][0], '/ws/external/visualizations/dense', '1grd')
+
             imsave(data['ref']['image'][0], '/ws/external/visualizations/dense', '1sat')
-            print(f"roll: {data['roll']}, pitch: {data['pitch']}")
+            # print(f"roll: {data['roll']}, pitch: {data['pitch']}")
 
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
@@ -149,10 +156,13 @@ class TwoViewRefiner2D(BaseModel):
                 F_q = pred['query']['feature_maps'][i]
             cam_q = pred['query']['camera_pyr'][i]
 
-            F_r2q, mask_r2q, p3d_grd, p3d_g2s = project_map_to_grd(data['T_q2r_gt'], cam_q, cam_ref, F_q, F_ref, data)
-            F_q2r, mask_q2r, p3d_s, p3d_s2g = project_grd_to_map(data['T_q2r_gt'], cam_q, cam_ref, F_q, F_ref, data)
+            F_r2q, mask_r2q, p3d_grd, p3d_g2s = project_map_to_grd(T_init, cam_q, cam_ref, F_q, F_ref, data)
+            F_q2r, mask_q2r, p3d_s, p3d_s2g = project_grd_to_map(T_init, cam_q, cam_ref, F_q, F_ref, data)
 
-            if 1:
+            if 0:
+                F_r2q, mask_r2q, p3d_grd, p3d_g2s = project_map_to_grd(data['T_q2r_gt'], cam_q, cam_ref, F_q, F_ref, data)
+                F_q2r, mask_q2r, p3d_s, p3d_s2g = project_grd_to_map(data['T_q2r_gt'], cam_q, cam_ref, F_q, F_ref, data)
+
                 from pixloc.visualization.viz_2d import imsave
                 imsave(F_q2r[0].mean(dim=0, keepdim=True), '/ws/external/visualizations/dense', '2q2rf')
                 imsave(F_q[0].mean(dim=0, keepdim=True), '/ws/external/visualizations/dense', '2grdf')
@@ -374,6 +384,8 @@ class TwoViewRefiner2D(BaseModel):
     def loss(self, pred, data):
         if self.conf.optimizer.main_loss == 'rt':
             losses = self.rt_loss(pred, data)
+        elif self.conf.optimizer.main_loss == "reproj2":
+            losses = self.reproj_loss2(pred, data)  # default = reproj
         elif self.conf.optimizer.main_loss == 'rtreproj':
             losses = self.rtreproj_loss(pred, data)  # rtreproj
         elif self.conf.optimizer.main_loss == 'reproj_rgb':
@@ -388,6 +400,42 @@ class TwoViewRefiner2D(BaseModel):
             losses = self.reproj_loss(pred, data)  # default = reproj
 
         return losses
+
+
+    def reproj_loss2(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+
+        def project(T_q2r):
+            return cam_ref.world2image(T_q2r * points_3d)
+
+        p2D_r_gt, mask = project(data['T_q2r_gt'])
+        p2D_r_i, mask_i = project(data['T_q2r_init'])
+        mask = (mask & mask_i).float()
+
+        def reprojection_error(T_q2r):
+            p2D_r, _ = project(T_q2r)
+            err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+            # err = scaled_barron(1., 2.)(err)[0] / 4
+            err = masked_mean(err, mask, -1)
+            return err
+
+        err_init = reprojection_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        losses = {'total': 0.}
+
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            losses[f'reprojection_error/{i}'] = err
+            losses['total'] += loss
+
+        losses['reprojection_error'] = err
+        losses['reprojection_error/init'] = err_init
+
+        return losses
+
 
     def reproj_lossx2(self, pred, data):
         cam_ref = data['ref']['camera']
