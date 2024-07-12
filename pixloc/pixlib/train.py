@@ -678,6 +678,10 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
 
         # original test mode
         # test(model, test_loader, wandb_logger=wandb_logger)
+        if args.test_every_epoch:
+            test(rank, conf, output_dir, args, wandb_logger=wandb_logger)
+
+    if not args.test_every_epoch:
         test(rank, conf, output_dir, args, wandb_logger=wandb_logger)
 
     logger.info(f'Finished training on process {rank}.')
@@ -715,6 +719,7 @@ if __name__ == '__main__':
     parser.add_argument('--restore', action='store_true', default=False)
     parser.add_argument('--finetune', type=str, default=False)
     parser.add_argument('--save_every_epoch', action='store_true', default=False, help='test & save every epoch')
+    parser.add_argument('--test_every_epoch', action='store_true', default=False, help='test every epoch')
     parser.add_argument('--distributed', action='store_true',default=False)
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--dotlist', nargs='*', default=["data.name=kitti","data.max_num_points3D=4096","data.force_num_points3D=True",

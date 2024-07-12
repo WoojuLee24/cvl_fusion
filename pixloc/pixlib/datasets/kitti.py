@@ -301,40 +301,8 @@ class _Dataset(Dataset):
         num_diff = self.conf.max_num_points3D - len(key_points)
         if num_diff < 0:
             # select max_num_points
-            if self.conf.sampling == 'random':
-                sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
-                key_points = key_points[sample_idx]
-            elif self.conf.sampling == 'distance':
-                distance = key_points.pow(2).mean(dim=-1)
-                sorted, indices = torch.sort(distance, dim=0, descending=True)
-                sample_idx = indices[:self.conf.max_num_points3D]
-                key_points = key_points[sample_idx]
-            # elif self.conf.sampling == 'random_fps':
-            #     rand_idx = torch.randperm(key_points.size(0))
-            #     key_points = key_points[rand_idx].unsqueeze(dim=0)
-            #     points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
-            #     key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
-            #     key_points = key_points.squeeze(dim=0)
-            elif self.conf.sampling == 'random_fps':
-                sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
-                key_points = key_points[sample_idx]
-                key_points = key_points.unsqueeze(dim=0)
-                # key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
-                centroid_idx = farthest_point_sample(key_points, self.conf.center_num_points3D)
-                key_points = key_points.squeeze()
-                centroid_idx = centroid_idx.squeeze()
-                grd_image['centroid_idx'] = centroid_idx
-                # key_points = key_points[centroid_idx].squeeze(dim=0)
-                # key_points = key_points.squeeze(dim=0)
-            elif self.conf.sampling == 'fps':
-                key_points = key_points.unsqueeze(dim=0)
-                centroid_idx = farthest_point_sample(key_points, self.conf.max_num_points3D) # self.conf.center_num_points3D
-                key_points = key_points.squeeze()
-                centroid_idx = centroid_idx.squeeze()
-                key_points = key_points[centroid_idx]
-                grd_image['centroid_idx'] = centroid_idx
-                # key_points = key_points[centroid_idx].squeeze(dim=0)
-                # key_points = key_points.squeeze(dim=0)
+            sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
+            key_points = key_points[sample_idx]
         elif num_diff > 0 and self.conf.force_num_points3D:
             point_add = torch.ones((num_diff, 3)) * key_points[-1]
             key_points = torch.cat([key_points, point_add], dim=0)

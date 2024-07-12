@@ -149,25 +149,28 @@ class NNOptimizer3D(BaseOptimizer):
                 T_delta = Pose.from_aa(dw, dt)
             elif self.conf.pose_from == 'rt':
                 # rescaling
-                mul_range = torch.tensor([[self.conf.trans_range, self.conf.trans_range, self.conf.rot_range]], dtype=torch.float32)
-                mul_range = mul_range.to(shift_range.device)
-                shift_range = shift_range * mul_range
-                delta = delta * shift_range.detach()
-                shiftxyr += delta
+                # mul_range = torch.tensor([[self.conf.trans_range, self.conf.trans_range, self.conf.rot_range]], dtype=torch.float32)
+                # mul_range = mul_range.to(shift_range.device)
+                # shift_range = shift_range * mul_range
+                T_delta, shiftxyr = self.delta2Tdelta(delta, shift_range, shiftxyr)
 
-                dt, dw = delta.split([2, 1], dim=-1)
-                B = dw.size(0)
-
-                cos = torch.cos(dw)
-                sin = torch.sin(dw)
-                zeros = torch.zeros_like(cos)
-                ones = torch.ones_like(cos)
-                dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
-                dR = dR.view(B, 3, 3)  # shape = [B,3,3]
-
-                dt = torch.cat([dt, zeros], dim=-1)
-
-                T_delta = Pose.from_Rt(dR, dt)
+                # delta = delta * shift_range.detach()
+                # shiftxyr += delta
+                #
+                # dt, dw = delta.split([2, 1], dim=-1)
+                # B = dw.size(0)
+                #
+                # cos = torch.cos(dw)
+                # sin = torch.sin(dw)
+                # zeros = torch.zeros_like(cos)
+                # ones = torch.ones_like(cos)
+                # dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+                # dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+                #
+                # dt = torch.cat([dt, zeros], dim=-1)
+                #
+                # T_delta = Pose.from_Rt(dR, dt)
+                pass
 
             T = T_delta @ T
 
@@ -186,6 +189,26 @@ class NNOptimizer3D(BaseOptimizer):
             return T_opt_list, failed, shiftxyr
         else:
             return T, failed, shiftxyr
+
+    def delta2Tdelta(self, delta, shift_range, shiftxyr):
+        delta = delta * shift_range.detach()
+        shiftxyr += delta
+
+        dt, dw = delta.split([2, 1], dim=-1)
+        B = dw.size(0)
+
+        cos = torch.cos(dw)
+        sin = torch.sin(dw)
+        zeros = torch.zeros_like(cos)
+        ones = torch.ones_like(cos)
+        dR = torch.cat([cos, -sin, zeros, sin, cos, zeros, zeros, zeros, ones], dim=-1)  # shape = [B,9]
+        dR = dR.view(B, 3, 3)  # shape = [B,3,3]
+
+        dt = torch.cat([dt, zeros], dim=-1)
+
+        T_delta = Pose.from_Rt(dR, dt)
+
+        return T_delta, shiftxyr
 
 
 class NNrefinev0_1(nn.Module):
