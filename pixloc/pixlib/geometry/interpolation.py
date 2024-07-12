@@ -55,7 +55,7 @@ def interpolate_tensor_bicubic(tensor, pts, return_gradients: bool = False):
 
 
 # @torch.jit.script
-def interpolate_tensor_bilinear(tensor, pts, return_gradients: bool = False):
+def interpolate_tensor_bilinear(tensor, pts, return_gradients: bool = False, out_shape='bnc'):
     if tensor.dim() == 3:
         assert pts.dim() == 2
         batched = False
@@ -69,7 +69,10 @@ def interpolate_tensor_bilinear(tensor, pts, return_gradients: bool = False):
     interpolated = torch.nn.functional.grid_sample(
             tensor, pts[:, None], mode='bilinear', align_corners=True)
     # tensor [B, C, H, W], pts[:, None] [B, Hout=1, Wout=Npts, 2], interpolated [B, C, Hout=1, Wout=Npts]
-    interpolated = interpolated.reshape(b, c, -1).transpose(-1, -2)     # interpolated [B,  Wout=Npts, C]
+    if out_shape == 'bnc':
+        interpolated = interpolated.reshape(b, c, -1).transpose(-1, -2)     # interpolated [B,  Wout=Npts, C]
+    elif out_shape == 'bcn':
+        interpolated = interpolated.reshape(b, c, -1)     # interpolated [B, C, H, W]
 
     if return_gradients:
         dxdy = torch.tensor([[1, 0], [0, 1]])[:, None].to(pts) / scale * 2
@@ -97,7 +100,7 @@ def mask_in_image(pts, image_size: Tuple[int, int], pad: int = 1):
 
 # @torch.jit.script
 def interpolate_tensor(tensor, pts, mode: str = 'linear',
-                       pad: int = 1, return_gradients: bool = False):
+                       pad: int = 1, return_gradients: bool = False, out_shape='bnc'):
     '''Interpolate a 3D tensor at given 2D locations.
     Args:
         tensor: with shape (C, H, W) or (B, C, H, W).
@@ -124,7 +127,7 @@ def interpolate_tensor(tensor, pts, mode: str = 'linear',
                 tensor, pts, return_gradients)
     elif mode == 'linear':
         interpolated, gradients = interpolate_tensor_bilinear(
-                tensor, pts, return_gradients)
+                tensor, pts, return_gradients, out_shape)
     else:
         raise NotImplementedError(mode)
     return interpolated, mask, gradients

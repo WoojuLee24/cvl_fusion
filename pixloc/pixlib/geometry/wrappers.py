@@ -12,9 +12,11 @@ import numpy as np
 
 from .optimization import skew_symmetric, so3exp_map
 from .utils import undistort_points, J_undistort_points
+from pixloc.pixlib.geometry.interpolation import interpolate_tensor
 # from pytorch3d.structures import Pointclouds, Volumes
 # from pytorch3d.ops import add_pointclouds_to_volumes
 
+EPS = 1e-7
 
 def autocast(func):
     """Cast the inputs of a TensorWrapper method to PyTorch tensors
@@ -452,13 +454,37 @@ class Camera(TensorWrapper):
 
     def image2world(self, p2d: torch.Tensor) -> torch.Tensor:
         '''Transform 2D pixel coordinates into 3D points, scale unknown .'''
-        p3d_xy = (p2d - self.c.unsqueeze(-2))/self.f.unsqueeze(-2)
+        if p2d.dim() == 4:
+            p3d_xy = (p2d - self.c[:, None, None, :]) / self.f[:, None, None, :]
+        else:
+            p3d_xy = (p2d - self.c.unsqueeze(-2)) / self.f.unsqueeze(-2)
         if np.infty in self._data:
             # para projection, z unknown
             p3d = torch.cat([p3d_xy, torch.zeros_like(p3d_xy[..., :1])], dim=-1)
         else:
             p3d = torch.cat([p3d_xy, torch.ones_like(p3d_xy[...,:1])], dim=-1)
         return p3d
+
+    @autocast
+    def world2image2(self, p3d: torch.Tensor) -> Tuple[torch.Tensor]:
+        '''Transform 3D points into 2D pixel coordinates.'''
+        p2d, visible = self.project2(p3d)
+        p2d, mask = self.undistort(p2d)
+        p2d = self.denormalize(p2d)
+        valid = visible & mask & self.in_image(p2d)
+        return p2d, valid
+
+
+    @autocast
+    def project2(self, p3d: torch.Tensor) -> Tuple[torch.Tensor]:
+        '''Project 3D points into the camera plane and check for visibility.'''
+        z = p3d[..., -1]
+        valid = z > self.eps
+        z = z.clamp(min=self.eps)
+
+        p2d = p3d[..., :-1] / z.unsqueeze(-1)
+        return p2d, valid
+
 
     def voxelize(self, xyz, feat, size, level):
         B, C, D, A, _ = size
@@ -530,55 +556,73 @@ class Camera(TensorWrapper):
 
         return p3d * f #+ c
 
-def project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, meter_per_pixel=0.078302836):
+
+def project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, data):
     # g2s with GH and T
     b, c, a, a = F_ref.size()
+    # b, c, h, w = F_query.size()
+    device = F_ref.device
+    vv, uu = torch.meshgrid(torch.arange(a, device=device), torch.arange(a, device=device), indexing='ij')
+    uv = torch.stack([uu, vv], dim=-1)
+    uv = uv[None, :, :, :].repeat(b, 1, 1, 1)  # shape = [b, h, w, 2]
+
+    p3d_s = cam_ref.image2world(uv)
+    p3d_s[..., -1] = torch.ones_like(p3d_s[..., -1])
+    # p3d_q = torch.einsum('bij,bhwj->...bhwi', T.inv().R, p3d_c)  # query world coordinate
+    p3d_s2g = T.inv() * p3d_s
+
+    p2d_s2g, mask_s2g = cam_q.world2image(data['query']['T_w2cam'] * p3d_s2g)
+    p2d_s2g = p2d_s2g.reshape(-1, a * a, 2)
+    F_q2r, mask_q2r, grad_q2r = interpolate_tensor(F_query, p2d_s2g,
+                                                   'linear', pad=4, return_gradients=True, out_shape='bcn')
+    F_q2r, mask_q2r = F_q2r.reshape(-1, c, a, a), mask_q2r.reshape(-1, 1, a, a)
+
+    return F_q2r, mask_q2r, p3d_s, p3d_s2g
+
+
+def project_map_to_grd(T, cam_q, cam_ref, F_query, F_ref, data):
+    # s2g with GH and T
+    b, c, a, a = F_ref.size()
     b, c, h, w = F_query.size()
+    device = F_query.device
+    vv, uu = torch.meshgrid(torch.arange(h, device=device), torch.arange(w, device=device), indexing='ij')
+    uv = torch.stack([uu, vv], dim=-1)
+    uv = uv[None, :, :, :].repeat(b, 1, 1, 1)  # shape = [b, h, w, 2]
 
-    uv1 = get_warp_sat2real(cam_ref, F_ref, meter_per_pixel)
-    uv1 = uv1.reshape(b, -1, 3).contiguous()
+    p3d_c = cam_q.image2world(uv)  # [b, h, w, 3]
+    p3d_c[..., -1] = torch.ones_like(p3d_c[..., -1])
+    p3d_grd = camera_to_onground(p3d_c, data['query']['T_w2cam'], data['query']['camera_h'], data['normal'])
+    p3d_g2s = torch.einsum('bij,bhwj->...bhwi', T.R, p3d_grd)  # query world coordinate
+    # p3d_grd_q = T * p3d_grd_q
 
-    uv1 = T.cuda().inv() * uv1
-    uv, mask = cam_q.world2image(uv1)
+    p2d_g2s, mask_g2s = cam_ref.world2image2(data['ref']['T_w2cam'] * p3d_g2s)
+    p2d_g2s = p2d_g2s.reshape(-1, h * w, 2)
+    F_r2q, mask_r2q, grad_r2q = interpolate_tensor(F_ref, p2d_g2s,
+                                                   'linear', pad=4, return_gradients=True, out_shape='bcn')
+    F_r2q, mask_r2q = F_r2q.reshape(-1, c, h, w), mask_r2q.reshape(-1, 1, h, w)
 
-    uv = uv.reshape(b, a, a, 2).contiguous()
-    mask = mask.reshape(b, a, a, 1).contiguous().float()
+    return F_r2q, mask_r2q, p3d_grd, p3d_g2s
 
-    scale = torch.tensor([w - 1, h - 1]).to(uv)
-    uv = (uv / scale) * 2 - 1
-    uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
 
-    return uv, mask
+def camera_to_onground(p3d_c, T_w2cam, camera_h, normal_grd, min=1E-8, max=200.):
+    # normal from query to camera coordinate
+    normal = torch.einsum('...ij,...cj->...ci', T_w2cam.R, normal_grd)
+    normal = normal.squeeze(1)
+    h = 0
+    if p3d_c.dim() > 3:
+        b,h,w,c = p3d_c.shape
+        p3d_c = p3d_c.flatten(1,2)
+    normal[:, 0] = 0    # set roll, pitch as 0
+    normal[:, -1] = 0
+    depth = camera_h[:,None] / torch.einsum('b...i,b...i->b...', p3d_c, normal)
+    valid = (depth < max) & (depth >= min)
+    depth = depth.clamp(min, max)
+    p3d_grd = depth.unsqueeze(-1) * p3d_c
+    # each camera coordinate to 'query' coordinate
+    p3d_grd = T_w2cam.inv()*p3d_grd # camera to query
 
-def get_warp_sat2real(cam_ref, F_ref, meter_per_pixel):
-    # satellite: u:east , v:south from bottomleft and u_center: east; v_center: north from center
-    # realword: X: south, Y:down, Z: east   origin is set to the ground plane
-
-    B, C, _, satmap_sidelength = F_ref.size()
-
-    # meshgrid the sat pannel
-    i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
-    ii, jj = torch.meshgrid(i, j)  # i:h,j:w
-
-    # uv is coordinate from top/left, v: south, u:east
-    uv = torch.stack([jj, ii], dim=-1).float()  # shape = [satmap_sidelength, satmap_sidelength, 2]
-
-    # sat map from top/left to center coordinate
-    # u0 = v0 = satmap_sidelength // 2
-    # uv_center = uv - torch.tensor(
-    #     [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
-    center = cam_ref.c
-    uv_center = uv.repeat(B, 1, 1, 1) - center.unsqueeze(dim=1).unsqueeze(
-        dim=1)  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
-
-    # inv equation (1)
-    # meter_per_pixel = 0.07463721  # 0.298548836 / 5 # 0.298548836 (paper) # 0.07463721(1280) #0.1958(512) 0.078302836
-    meter_per_pixel *= 1280 / satmap_sidelength
-    # R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
-    # Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
-
-    XY = uv_center * meter_per_pixel
-    Z = torch.zeros_like(XY[..., 0:1])
-    XYZ = torch.cat([XY[..., :1], XY[..., 1:], Z], dim=-1)  # [sidelength,sidelength,4]
-
-    return XYZ
+    # not valid set to far away
+    p3d_grd[~valid] = torch.tensor(max).to(p3d_grd)
+    if h > 0:
+        p3d_grd = p3d_grd.reshape(b,h,w,c)
+    return p3d_grd
