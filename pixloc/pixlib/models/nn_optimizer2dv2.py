@@ -73,6 +73,8 @@ class NNOptimizer2D(BaseOptimizer):
             self.nnrefine_rgb = NNrefinev0_1(conf)
         elif conf.version == 0.2:
             self.nnrefine_rgb = NNrefinev0_1(conf)
+        elif conf.version == 0.3:
+            self.nnrefine_rgb = NNrefinev0_3(conf)
         self.uv_pred = None
         self.uv_gt = None
         assert conf.learned_damping
@@ -116,7 +118,14 @@ class NNOptimizer2D(BaseOptimizer):
             #     J = None
 
             # # solve the nn optimizer
-            delta = self.nnrefine_rgb(F_q2r, F_ref, scale)
+
+            if self.conf.version == 0.1:
+                input_features = (F_q2r, F_ref, scale)
+            elif self.conf.version == 0.3:
+                input_features = (F_q2r, F_ref, F_r2q, F_query, scale)
+
+            # delta = self.nnrefine_rgb(F_q2r, F_ref, scale)
+            delta = self.nnrefine_rgb(*input_features)
 
             # rescaling
             # delta = delta * shift_range
@@ -351,21 +360,21 @@ class NNrefinev0_1(nn.Module):
                                          nn.Tanh())
 
 
-    def forward(self, pred_feat, ref_feat, scale):
+    def forward(self, F_q2r, F_ref, scale):
 
-        B, C, _, _ = pred_feat.size()
+        B, C, _, _ = F_q2r.size()
 
         # normalization
         if self.args.norm == 'zsn':
-            pred_feat = (pred_feat - pred_feat.mean()) / (pred_feat.std() + 1e-6)
-            ref_feat = (ref_feat - ref_feat.mean()) / (ref_feat.std() + 1e-6)
+            F_q2r = (F_q2r - F_q2r.mean()) / (F_q2r.std() + 1e-6)
+            F_ref = (F_ref - F_ref.mean()) / (F_ref.std() + 1e-6)
         else:
             pass
 
         if self.args.input == 'concat':     # default
-            r = torch.cat([pred_feat, ref_feat], dim=-1)
+            r = torch.cat([F_q2r, F_ref], dim=-1)
         else:
-            r = pred_feat - ref_feat  # [B, C, H, W]
+            r = F_q2r - F_ref  # [B, C, H, W]
 
         B, C, _, _ = r.shape
         if 2-scale == 0:
@@ -383,6 +392,110 @@ class NNrefinev0_1(nn.Module):
             B, C, H, W = x.size()
             x = x.view(B, C*H*W)
             y = self.mapping(x)  # [B, 3]
+
+        return y
+
+
+class NNrefinev0_3(nn.Module):
+    def __init__(self, args):
+        super(NNrefinev0_3, self).__init__()
+        self.args = args
+
+        # channel projection
+        self.cin = self.args.input_dim  # [64, 32, 16] # [128, 128, 32]
+        self.cout = 32
+
+        if self.args.pose_from == 'aa':
+            self.yout = 6
+        elif self.args.pose_from == 'rt':
+            self.yout = 3
+
+        self.q2r_linear0 = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Conv2d(self.cin[0], self.cout, kernel_size=(3, 3), stride=(1, 1),
+                                                   padding=(1, 1)))
+        self.q2r_linear1 = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Conv2d(self.cin[1], self.cout, kernel_size=(3, 3), stride=(1, 1),
+                                                   padding=(1, 1)))
+        self.q2r_linear2 = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Conv2d(self.cin[2], self.cout, kernel_size=(3, 3), stride=(1, 1),
+                                                   padding=(1, 1)))
+        self.r2q_linear0 = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Conv2d(self.cin[0], self.cout, kernel_size=(3, 3), stride=(1, 1),
+                                                   padding=(1, 1)))
+        self.r2q_linear1 = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Conv2d(self.cin[1], self.cout, kernel_size=(3, 3), stride=(1, 1),
+                                                   padding=(1, 1)))
+        self.r2q_linear2 = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Conv2d(self.cin[2], self.cout, kernel_size=(3, 3), stride=(1, 1),
+                                                   padding=(1, 1)))
+
+        if self.args.pool == 'gap':
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(16, 3),
+                                         nn.Tanh())
+
+        elif self.args.pool_rgb == 'aap2':
+            self.r2q_pool = nn.AdaptiveAvgPool2d((8, 32))
+            self.r2q_mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                             nn.Linear(self.cout * 8 * 32, 1024),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(1024, 32))
+            self.q2r_pool = nn.AdaptiveAvgPool2d((16, 16))
+            self.q2r_mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                             nn.Linear(self.cout * 16 * 16, 1024),
+                                             nn.ReLU(inplace=False),
+                                             nn.Linear(1024, 32))
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(16, 16),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(16, 3),
+                                         nn.Tanh())
+
+
+    def forward(self, F_q2r, F_ref, F_r2q, F_query, scale):
+
+        B, C, A, A = F_q2r.size()
+        B, C, H, W = F_r2q.size()
+
+        r_q2r = F_q2r - F_ref  # [B, C, H, W]
+        r_r2q = F_r2q - F_query
+
+        if 2-scale == 0:
+            r_q2r = self.q2r_linear0(r_q2r)
+            r_r2q = self.r2q_linear0(r_r2q)
+        elif 2 - scale == 1:
+            r_q2r = self.q2r_linear1(r_q2r)
+            r_r2q = self.r2q_linear1(r_r2q)
+        elif 2 - scale == 2:
+            r_q2r = self.q2r_linear2(r_q2r)
+            r_r2q = self.r2q_linear2(r_r2q)
+
+        if self.args.pool == 'gap':
+            r_q2r = torch.mean(r_q2r, dim=[2, 3])
+            q2r = self.q2r_mapping(r_q2r)  # [B, 3]
+            r_r2q = torch.mean(r_r2q, dim=[2, 3])
+            r2q = self.r2q_mapping(r_r2q)  # [B, 3]
+
+            r2q_q2r = torch.cat([r2q, q2r], dim=1)
+            y = self.mapping(r2q_q2r)
+
+        elif 'aap' in self.args.pool:
+            r_q2r = self.q2r_pool(r_q2r)
+            b, c, h, w = r_q2r.size()
+            r_q2r = r_q2r.view(b, c*h*w)
+            q2r = self.q2r_mapping(r_q2r)  # [B, 3]
+
+            r_r2q = self.r2q_pool(r_r2q)
+            b, c, h, w = r_r2q.size()
+            r_r2q = r_q2r.view(b, c*h*w)
+            r2q = self.r2q_mapping(r_r2q)  # [B, 3]
+
+            r2q_q2r = torch.cat([r2q, q2r], dim=1)
+            y = self.mapping(r2q_q2r)
 
         return y
 
