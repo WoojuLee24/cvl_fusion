@@ -70,11 +70,11 @@ class NNOptimizer2D(BaseOptimizer):
         self.conf = conf
         self.dampingnet = DampingNet(conf.damping)
         if conf.version == 0.1:
-            self.nnrefine_rgb = NNrefinev0_1(conf)
+            self.nnrefine_rgb = NNrefinev0_1(conf)  # g2sp
         elif conf.version == 0.2:
-            self.nnrefine_rgb = NNrefinev0_1(conf)
+            self.nnrefine_rgb = NNrefinev0_2(conf)  # s2gp
         elif conf.version == 0.3:
-            self.nnrefine_rgb = NNrefinev0_3(conf)
+            self.nnrefine_rgb = NNrefinev0_3(conf)  # bp
         self.uv_pred = None
         self.uv_gt = None
         assert conf.learned_damping
@@ -121,6 +121,8 @@ class NNOptimizer2D(BaseOptimizer):
 
             if self.conf.version == 0.1:
                 input_features = (F_q2r, F_ref, scale)
+            elif self.conf.version == 0.2:
+                input_features = (F_r2q, F_query, scale)
             elif self.conf.version == 0.3:
                 input_features = (F_q2r, F_ref, F_r2q, F_query, scale)
 
@@ -394,6 +396,85 @@ class NNrefinev0_1(nn.Module):
             y = self.mapping(x)  # [B, 3]
 
         return y
+
+
+class NNrefinev0_2(nn.Module):
+    def __init__(self, args):
+        super(NNrefinev0_2, self).__init__()
+        self.args = args
+
+        # channel projection
+        self.cin = self.args.input_dim  # [64, 32, 16] # [128, 128, 32]
+        self.cout = 32
+
+        if self.args.pose_from == 'aa':
+            self.yout = 6
+        elif self.args.pose_from == 'rt':
+            self.yout = 3
+
+        self.linear0 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Conv2d(self.cin[0], self.cout, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.linear1 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Conv2d(self.cin[1], self.cout, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.linear2 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Conv2d(self.cin[2], self.cout, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+
+        if self.args.pool == 'gap':
+            self.mapping = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Linear(64, 16),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(16, 3),
+                                         nn.Tanh())
+
+        elif self.args.pool_rgb == 'aap2':
+            self.pool = nn.AdaptiveAvgPool2d((8, 32))
+            self.mapping = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Linear(self.cout * 8 * 32, 1024),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(1024, 32),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(32, 3),
+                                         nn.Tanh())
+
+        elif self.args.pool_rgb == 'aap3':
+            self.pool = nn.AdaptiveAvgPool2d((32, 32))
+            self.mapping = nn.Sequential(nn.ReLU(inplace=True),
+                                         nn.Linear(64 * 32 * 32, 2048),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(2048, 64),
+                                         nn.ReLU(inplace=True),
+                                         nn.Linear(64, 3),
+                                         nn.Tanh())
+
+
+    def forward(self, F_r2q, F_q, scale):
+
+        B, C, _, _ = F_r2q.size()
+
+        if self.args.input == 'concat':     # default
+            r = torch.cat([F_r2q, F_q], dim=-1)
+        else:
+            r = F_r2q - F_q  # [B, C, H, W]
+
+        B, C, _, _ = r.shape
+        if 2-scale == 0:
+            x = self.linear0(r)
+        elif 2 - scale == 1:
+            x = self.linear1(r)
+        elif 2 - scale == 2:
+            x = self.linear2(r)
+
+        if self.args.pool == 'gap':
+            x = torch.mean(x, dim=[2, 3])
+            y = self.mapping(x)  # [B, 3]
+        elif 'aap' in self.args.pool:
+            x = self.pool(x)
+            B, C, H, W = x.size()
+            x = x.view(B, C*H*W)
+            y = self.mapping(x)  # [B, 3]
+
+        return y
+
 
 
 class NNrefinev0_3(nn.Module):

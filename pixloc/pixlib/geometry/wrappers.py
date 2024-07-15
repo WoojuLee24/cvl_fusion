@@ -591,11 +591,11 @@ def project_map_to_grd(T, cam_q, cam_ref, F_query, F_ref, data):
 
     p3d_c = cam_q.image2world(uv)  # [b, h, w, 3]
     p3d_c[..., -1] = torch.ones_like(p3d_c[..., -1])
-    p3d_grd = camera_to_onground(p3d_c, data['query']['T_w2cam'], data['query']['camera_h'], data['normal'])
-    p3d_g2s = torch.einsum('bij,bhwj->...bhwi', T.R, p3d_grd)  # query world coordinate
-    # p3d_grd_q = T * p3d_grd_q
+    p3d_grd = camera_to_onground(p3d_c, data['query']['T_w2cam'], data['query']['camera_h'], data['normal'], max=100.)
+    # p3d_g2s = torch.einsum('bij,bhwj->...bhwi', T.R, p3d_grd)  # query world coordinate
+    p3d_g2s = T * p3d_grd.reshape(-1, h * w, 3)
 
-    p2d_g2s, mask_g2s = cam_ref.world2image2(data['ref']['T_w2cam'] * p3d_g2s.reshape(-1, h * w, 3))
+    p2d_g2s, mask_g2s = cam_ref.world2image2(data['ref']['T_w2cam'] * p3d_g2s)
     # p2d_g2s = p2d_g2s.reshape(-1, h * w, 2)
     F_r2q, mask_r2q, _ = interpolate_tensor(F_ref, p2d_g2s,
                                                    'linear', pad=4, return_gradients=False, out_shape='bcn')
@@ -612,8 +612,8 @@ def camera_to_onground(p3d_c, T_w2cam, camera_h, normal_grd, min=1E-8, max=200.)
     if p3d_c.dim() > 3:
         b,h,w,c = p3d_c.shape
         p3d_c = p3d_c.flatten(1,2)
-    normal[:, 0] = 0    # set roll, pitch as 0
-    normal[:, -1] = 0
+    # normal[:, 0] = 0    # set roll, pitch as 0
+    # normal[:, -1] = 0
     depth = camera_h[:,None] / torch.einsum('b...i,b...i->b...', p3d_c, normal)
     valid = (depth < max) & (depth >= min)
     depth = depth.clamp(min, max)

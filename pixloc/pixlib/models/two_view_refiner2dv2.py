@@ -58,7 +58,7 @@ class TwoViewRefiner2D(BaseModel):
             'kp': 1.,
             'kd': 1.,
             'ki': 1.,
-            'version': 1.0,
+            'version': 0.1,
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -123,7 +123,7 @@ class TwoViewRefiner2D(BaseModel):
         data['query']['points3D'] = p3d_grd.detach().reshape(-1, h*w, c)
 
         if 0:
-            r2q_img, r2q_mask, p3d_grd, _= project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
+            r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
                                          data['query']['image'], data['ref']['image'], data)
 
             q2r_img, q2r_mask, _, _ = project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
