@@ -557,14 +557,17 @@ class Camera(TensorWrapper):
         return p3d * f #+ c
 
 
-def project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, data):
+def project_grd_to_map(T, cam_q, cam_ref, F_query, F_ref, data, depth=100):
     # g2s with GH and T
     b, c, a, a = F_ref.size()
     # b, c, h, w = F_query.size()
     device = F_ref.device
+    crop_a = a // 2 # 640, 1280 - 2 * depth*0.2 # TODO
+
     vv, uu = torch.meshgrid(torch.arange(a, device=device), torch.arange(a, device=device), indexing='ij')
     uv = torch.stack([uu, vv], dim=-1)
     uv = uv[None, :, :, :].repeat(b, 1, 1, 1)  # shape = [b, h, w, 2]
+    uv = center_crop(uv, (crop_a, crop_a), mode='bhwc')
 
     p3d_s = cam_ref.image2world(uv)
     p3d_s[..., -1] = torch.ones_like(p3d_s[..., -1])
@@ -626,3 +629,32 @@ def camera_to_onground(p3d_c, T_w2cam, camera_h, normal_grd, min=1E-8, max=200.)
     if h > 0:
         p3d_grd = p3d_grd.reshape(b,h,w,c)
     return p3d_grd
+
+
+def center_crop(feature_map, crop_size, mode='bchw'):
+    if mode == 'bchw':
+        B, C, H, W = feature_map.size()
+    elif mode == 'bhwc':
+        feature_map = feature_map.permute(0, 3, 1, 2)
+        B, C, H, W = feature_map.size()
+
+    crop_h, crop_w = crop_size
+
+    if crop_h > H or crop_w > W:
+        raise ValueError("Crop size should be smaller than the feature map size")
+
+    start_h = (H - crop_h) // 2
+    start_w = (W - crop_w) // 2
+
+    end_h = start_h + crop_h
+    end_w = start_h + crop_w
+
+    mask = torch.zeros_like(feature_map)
+    mask[:, :, start_h:end_h, start_w:end_w] = 1
+
+    feature_map = feature_map * mask.detach()
+
+    if mode == 'bhwc':
+        feature_map = feature_map.permute(0, 2, 3, 1)
+
+    return feature_map
