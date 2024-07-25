@@ -48,6 +48,7 @@ class Kitti(BaseDataset):
         'trans_range': 5,
         'sampling': 'random',
         'pose_from': 'aa',
+        'pairs': 1,
     }
 
     def _init(self, conf):
@@ -143,8 +144,10 @@ class _Dataset(Dataset):
         self.root = root_dir
         self.conf = conf
         self.satmap_dir = 'satmap'
-        self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair.npy'), allow_pickle=True)
-
+        if self.conf.pairs == 1:
+            self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair.npy'), allow_pickle=True)
+        else:
+            self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, f'groundview_satellite_pair{self.conf.pairs}.npy'), allow_pickle=True)
         # read form txt files
         self.file_name = []
         txt_file_name = os.path.join(self.root, grdimage_dir, 'split', split+'_files.txt')
