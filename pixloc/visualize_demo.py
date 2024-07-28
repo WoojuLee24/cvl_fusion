@@ -114,53 +114,53 @@ def Val(refiner, val_loader, save_path, best_result):
         # for debug
         if 1:
             imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
-            plot_images([imr],dpi=50,  # set to 100-200 for higher res
-                             titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
-            plot_keypoints([p2D_r_gt[valid]], colors='lime', alpha=1, ps=1)
-            if SavePlt:
-                save_plot(save_path + f'/sat_points_2gt.png')
-            plot_images([imr], dpi=50,  # set to 100-200 for higher res
-                        titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
-            plot_keypoints([p2D_r_init[valid]], colors='red', alpha=1, ps=1)
-            if SavePlt:
-                save_plot(save_path + f'/sat_points_0init.png')
-            plot_images([imr], dpi=50,  # set to 100-200 for higher res
-                        titles=[(errR, errt), errP + errt])
-            plot_keypoints([p2D_r_opt[valid]], colors='blue', alpha=1, ps=1)
-            if SavePlt:
-                save_plot(save_path + f'/sat_points_1opt.png')
-
+            # plot_images([imr],dpi=50,  # set to 100-200 for higher res
+            #                  titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
+            # plot_keypoints([p2D_r_gt[valid]], colors='lime', alpha=1, ps=1)
             # if SavePlt:
-            #     save_plot(save_path + f'/sat_points.png')
-            plt.show()
+            #     save_plot(save_path + f'/sat_points_2gt.png')
+            # plot_images([imr], dpi=50,  # set to 100-200 for higher res
+            #             titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
+            # plot_keypoints([p2D_r_init[valid]], colors='red', alpha=1, ps=1)
+            # if SavePlt:
+            #     save_plot(save_path + f'/sat_points_0init.png')
+            # plot_images([imr], dpi=50,  # set to 100-200 for higher res
+            #             titles=[(errR, errt), errP + errt])
+            # plot_keypoints([p2D_r_opt[valid]], colors='blue', alpha=1, ps=1)
+            # if SavePlt:
+            #     save_plot(save_path + f'/sat_points_1opt.png')
+            #
+            # # if SavePlt:
+            # #     save_plot(save_path + f'/sat_points.png')
+            # plt.show()
             plot_images([imq],
                         dpi=100)
             plot_keypoints([p2D_q[valid_q]], colors='lime')
             if SavePlt:
-                save_plot(save_path + f'/ground_points.png')
-            # add_text(0, 'reference')
-            # add_text(1, 'query')
-            plt.show()
+                save_plot(save_path + f'/ground_points{idx}.png')
+            # # add_text(0, 'reference')
+            # # add_text(1, 'query')
+            # plt.show()
+            #
+            # imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
 
-            imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
-
-            # g2s with GH and T
-            imr1 = imr.permute(2, 0, 1)
-            imq1 = imq.permute(2, 0, 1)
-            c, a, a = imr1.size()
-            c, h, w = imq1.size()
-            uv1 = get_warp_sat2real(imr1)
-            uv1 = uv1.reshape(-1, 3).contiguous() # 1d case
-            uv1 = data['T_q2r_gt'].cuda().inv() * uv1
-            # uv, mask = cam_query.world2image(uv1)
-            uv, mask = data['query']['camera'].cuda().world2image(uv1)
-            uv = uv.reshape(a, a, 2).contiguous()
-
-            scale = torch.tensor([w - 1, h - 1]).to(uv)
-            uv = (uv / scale) * 2 - 1
-            uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
-            g2s = torch.nn.functional.grid_sample(
-                imq1.cuda().unsqueeze(dim=0), uv.unsqueeze(dim=0), mode='bilinear', align_corners=True)
+            # # g2s with GH and T
+            # imr1 = imr.permute(2, 0, 1)
+            # imq1 = imq.permute(2, 0, 1)
+            # c, a, a = imr1.size()
+            # c, h, w = imq1.size()
+            # uv1 = get_warp_sat2real(imr1)
+            # uv1 = uv1.reshape(-1, 3).contiguous() # 1d case
+            # uv1 = data['T_q2r_gt'].cuda().inv() * uv1
+            # # uv, mask = cam_query.world2image(uv1)
+            # uv, mask = data['query']['camera'].cuda().world2image(uv1)
+            # uv = uv.reshape(a, a, 2).contiguous()
+            #
+            # scale = torch.tensor([w - 1, h - 1]).to(uv)
+            # uv = (uv / scale) * 2 - 1
+            # uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
+            # g2s = torch.nn.functional.grid_sample(
+            #     imq1.cuda().unsqueeze(dim=0), uv.unsqueeze(dim=0), mode='bilinear', align_corners=True)
 
             # plot_images([g2s[0].permute(1, 2, 0).cpu()], dpi=100)
             # if SavePlt:
@@ -253,6 +253,7 @@ def Val(refiner, val_loader, save_path, best_result):
             #     ax.grid()
             # plt.show()
 
+            # imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
             colors = mpl.cm.cool(1 - np.linspace(0, 1, len(logger.camera_trajectory)))[:, :3]
             plot_images([imr])
             axes = plt.gcf().axes
@@ -263,15 +264,16 @@ def Val(refiner, val_loader, save_path, best_result):
                     end_0 = p2e
                     axes[0].quiver(start_0[:, 0], start_0[:, 1], end_0[:, 0] - start_0[:, 0], start_0[:, 1] - end_0[:, 1], color='r')
                 # elif i == len(logger.camera_trajectory)-1:
-                #     axes[0].quiver(p2s[:, 0], p2s[:, 1], p2e[:, 0] - p2s[:, 0], p2s[:, 1] - p2e[:, 1], color='b')
-                #     axes[0].quiver(start_0[:, 0], start_0[:, 1], end_0[:, 0] - start_0[:, 0], start_0[:, 1] - end_0[:, 1], color='r')
+                elif i == conf['optimizer']['num_iters'] * 3 - 1:
+                    axes[0].quiver(p2s[:, 0], p2s[:, 1], p2e[:, 0] - p2s[:, 0], p2s[:, 1] - p2e[:, 1], color='b')
+                    # axes[0].quiver(start_0[:, 0], start_0[:, 1], end_0[:, 0] - start_0[:, 0], start_0[:, 1] - end_0[:, 1], color=c[None])
                 # else:
                 #     axes[0].quiver(p2s[:,0], p2s[:,1], p2e[:,0]-p2s[:,0], p2s[:,1]-p2e[:,1], color=c[None])
             axes[0].quiver(logger.camera_gt[:, 0], logger.camera_gt[:, 1], logger.camera_gt_yaw[:, 0]-logger.camera_gt[:, 0],
                            logger.camera_gt[:, 1]-logger.camera_gt_yaw[:, 1], color='lime')
             logger.clear_trajectory()
             if SavePlt:
-                save_plot(save_path+'/pose_refine.png')
+                save_plot(save_path+f'/pose_refine{idx}.png')
             plt.show()
 
     acc = acc/cnt
@@ -331,6 +333,9 @@ if __name__ == '__main__':
         'num_workers': 0,
         'satmap_zoom': 18,
         "sampling": 'distance', #'random' #
+        "pairs": 20,
+        "trans_range": 20,
+        "rot_range": 10,
     }
 
     conf = {
@@ -338,7 +343,8 @@ if __name__ == '__main__':
         'optimizer': {'num_iters': 5, },
     }
     dataset = 'kaist_kitti_dense' # 'kitti', 'kaist_kitti'
-    ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
+    ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/resconcat_jac_iters5_t20_r10_p20/checkpoint_best.tar'
+    #'/ws/external/outputs/training/Kaist_Kitti_Dense/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
     # ckpt = '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
     # '/ws/external/outputs/training/LM_LiDAR_itesr5_40x40_30/checkpoint_best.tar'
     # '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
@@ -379,8 +385,10 @@ if __name__ == '__main__':
     # trainning
     set_seed(20)
 
-    if 0: # test
-        test(refiner, test_loader) #val_loader
-    if 1: # visualization
-        Val(refiner, val_loader, save_path, 0)
+    Val(refiner, test_loader, save_path, 0)
+
+    # if 1: # test
+    #     test(refiner, test_loader) #val_loader
+    # if 0: # visualization
+    #     Val(refiner, val_loader, save_path, 0)
 

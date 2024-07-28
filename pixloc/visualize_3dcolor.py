@@ -81,8 +81,8 @@ def min_max_norm(confidence):
     return normed
 
 #val
-def Val(refiner, val_loader, save_path, best_result):
-    refiner.eval()
+def Val(val_loader, save_path, best_result):
+    # refiner.eval()
 
     for idx, data in zip(range(2959), val_loader):
         p3D_q = data['query']['points3D']
@@ -99,6 +99,10 @@ def Val(refiner, val_loader, save_path, best_result):
         F_q, _ = interpolate_tensor_bilinear(data['query']['image'], p2D_q)
         F_r_gt, _ = interpolate_tensor_bilinear(data['ref']['image'], p2D_r_gt)
         F_r_init, _ = interpolate_tensor_bilinear(data['ref']['image'], p2D_r_init)
+        F_res_gt = F_q - F_r_gt
+        F_res_gt = (F_res_gt - F_res_gt.mean()) / (F_res_gt.std() + 1e-6)
+        F_res_init = F_q - F_r_init
+        F_res_init = (F_res_init - F_res_init.mean()) / (F_res_init.std() + 1e-6)
 
         pcd_q = o3d.geometry.PointCloud()
         pcd_q.points = o3d.utility.Vector3dVector(p3D_q[0].cpu().numpy())
@@ -112,9 +116,19 @@ def Val(refiner, val_loader, save_path, best_result):
         pcd_r_init.points = o3d.utility.Vector3dVector(p3D_r_init[0].cpu().numpy())
         pcd_r_init.colors = o3d.utility.Vector3dVector(F_r_init[0].cpu().numpy())
 
+        pcd_res_gt = o3d.geometry.PointCloud()
+        pcd_res_gt.points = o3d.utility.Vector3dVector(p3D_r_gt[0].cpu().numpy())
+        pcd_res_gt.colors = o3d.utility.Vector3dVector(F_res_gt[0].cpu().numpy())
+
+        pcd_res_init = o3d.geometry.PointCloud()
+        pcd_res_init.points = o3d.utility.Vector3dVector(p3D_r_init[0].cpu().numpy())
+        pcd_res_init.colors = o3d.utility.Vector3dVector(F_res_init[0].cpu().numpy())
+
         o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_q.ply'), pcd_q)
         o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_r_gt.ply'), pcd_r_gt)
         o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_r_init.ply'), pcd_r_init)
+        o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_res_gt.ply'), pcd_res_gt)
+        o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_res_init.ply'), pcd_res_init)
 
         # o3d.visualization.draw_geometries([pcd_q])
         # o3d.visualization.draw_geometries([pcd_r_gt])
@@ -169,7 +183,10 @@ if __name__ == '__main__':
         'test_batch_size': 1,
         'num_workers': 1,
         'satmap_zoom': 18,
-        "sampling": 'distance', #'random' #
+        'trans_range': 20,
+         'rot_range': 15
+        # "sampling": 'distance', #'random' #
+
     }
 
     if Ford_dataset:
@@ -194,21 +211,24 @@ if __name__ == '__main__':
         'optimizer': {'num_iters': 1, },
     }
     # refiner = load_experiment(exp, conf, get_last=True).to(device)
-    refiner = load_experiment(exp, conf,
-                              ckpt='/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
-                              ).to(device)
+    ckpt = '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_resconcat_reproj2_jac_iters5_c96/checkpoint_best.tar'
+
+    # refiner = load_experiment(exp, conf,
+    #                           ckpt=ckpt
+    #                           ).to(device)
     save_path = '/ws/external/visualizations/3dcolor' # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    print(OmegaConf.to_yaml(refiner.conf))
+    # print(OmegaConf.to_yaml(refiner.conf))
 
-    logger = Logger(refiner.optimizer)
+    # logger = Logger(refiner.optimizer)
     # trainning
     set_seed(20)
 
     if 0: # test
         test(refiner, test_loader) #val_loader
     if 1: # visualization
-        Val(refiner, val_loader, save_path, 0)
+        # Val(refiner, val_loader, save_path, 0)
+        Val(val_loader, save_path, 0)
 
