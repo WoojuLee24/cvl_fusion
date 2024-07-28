@@ -169,7 +169,7 @@ class _Corruption_Dataset(Dataset):
         self.sat_pair = np.load(os.path.join(self.ori_root, grdimage_dir, 'groundview_satellite_pair_'+str(self.satmap_zoom)+'.npy'), allow_pickle=True)
 
         # voc_severity
-        self.voc_severity = [1,2,3,4,5]
+        self.voc_severity = [5] # [1,2,3,4,5]
 
         # read form txt files
         self.file_name = []
@@ -324,20 +324,9 @@ class _Corruption_Dataset(Dataset):
         num_diff = self.conf.max_num_points3D - len(key_points)
         if num_diff < 0:
             # select max_num_points
-            if self.conf.sampling == 'random':
-                sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
-                key_points = key_points[sample_idx]
-            elif self.conf.sampling == 'random_fps':
-                rand_idx = torch.randperm(key_points.size(0))
-                key_points = key_points[rand_idx].unsqueeze(dim=0)
-                points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
-                key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
-                key_points = key_points.squeeze(dim=0)
-            elif self.conf.sampling == 'fps':
-                key_points = key_points.unsqueeze(dim=0)
-                points_per_batch = torch.tensor([self.conf.max_num_points3D]).to(key_points.device)
-                key_points, sample_idx = sample_farthest_points(key_points, points_per_batch, self.conf.max_num_points3D)
-                key_points = key_points.squeeze(dim=0)
+            # if self.conf.sampling == 'random':
+            sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
+            key_points = key_points[sample_idx]
         elif num_diff > 0 and self.conf.force_num_points3D:
             point_add = torch.ones((num_diff, 3)) * key_points[-1]
             key_points = torch.cat([key_points, point_add], dim=0)
@@ -358,6 +347,10 @@ class _Corruption_Dataset(Dataset):
         shift_gt = np.array([T[0], T[1], yaw])
         shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
+        # statistics
+        mean = np.array([[-0.1917, 0.9250, 15.6600]], dtype=np.float32)
+        std = np.array([[6.9589, 0.8642, 11.5166]], dtype=np.float32)
+
         # scene
         scene = drive_dir[:4] + drive_dir[5:7] + drive_dir[8:10] + drive_dir[28:32] + image_no[:10]
 
@@ -368,6 +361,8 @@ class _Corruption_Dataset(Dataset):
             'T_q2r_gt': q2r_gt.float(),
             'shift_gt': shift_gt,
             'shift_range': shift_range,
+            'mean': mean,
+            'std': std
         }
 
         # debug

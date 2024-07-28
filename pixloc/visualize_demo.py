@@ -133,11 +133,29 @@ def Val(refiner, val_loader, save_path, best_result):
             # # if SavePlt:
             # #     save_plot(save_path + f'/sat_points.png')
             # plt.show()
-            plot_images([imq],
-                        dpi=100)
-            plot_keypoints([p2D_q[valid_q]], colors='lime')
-            if SavePlt:
-                save_plot(save_path + f'/ground_points{idx}.png')
+            # plot_images([imq], dpi=100)
+            # if SavePlt:
+            #     imq_path = os.path.join(save_path, 'imq')
+            #     if not os.path.exists(imq_path):
+            #         os.makedirs(imq_path, exist_ok=True)
+            #     save_plot(imq_path + f'/ground{idx:06d}.png')
+            #
+            #
+            # plot_images([imq], dpi=100)
+            # plot_keypoints([p2D_q[valid_q]], colors='lime')
+            # if SavePlt:
+            #     imq2_path = os.path.join(save_path, 'imq2')
+            #     if not os.path.exists(imq2_path):
+            #         os.makedirs(imq2_path, exist_ok=True)
+            #     save_plot(imq2_path + f'/ground_points{idx:06d}.png')
+            #
+            # plot_keypoints([p2D_q[valid_q]], colors='lime')
+            # if SavePlt:
+            #     imq3_path = os.path.join(save_path, 'imq2')
+            #     if not os.path.exists(imq3_path):
+            #         os.makedirs(imq3_path, exist_ok=True)
+            #     save_plot(imq3_path + f'/points{idx:06d}.png')
+
             # # add_text(0, 'reference')
             # # add_text(1, 'query')
             # plt.show()
@@ -270,10 +288,13 @@ def Val(refiner, val_loader, save_path, best_result):
                 # else:
                 #     axes[0].quiver(p2s[:,0], p2s[:,1], p2e[:,0]-p2s[:,0], p2s[:,1]-p2e[:,1], color=c[None])
             axes[0].quiver(logger.camera_gt[:, 0], logger.camera_gt[:, 1], logger.camera_gt_yaw[:, 0]-logger.camera_gt[:, 0],
-                           logger.camera_gt[:, 1]-logger.camera_gt_yaw[:, 1], color='lime')
+                           logger.camera_gt[:, 1]-logger.camera_gt_yaw[:, 1], color='lime', width=0.005)
             logger.clear_trajectory()
             if SavePlt:
-                save_plot(save_path+f'/pose_refine{idx}.png')
+                pose_path = os.path.join(save_path, 'pose')
+                if not os.path.exists(pose_path):
+                    os.makedirs(pose_path, exist_ok=True)
+                save_plot(pose_path+f'/pose_refine{idx:06d}.png')
             plt.show()
 
     acc = acc/cnt
@@ -284,6 +305,56 @@ def Val(refiner, val_loader, save_path, best_result):
             os.makedirs(save_path)
         torch.save(refiner.state_dict(), save_path + 'Model_best.pth')
     return acc
+
+
+def Load_raw(refiner, val_loader, save_path, best_result):
+    refiner.eval()
+    acc = 0
+    cnt = 0
+    for idx, data in zip(range(2959), val_loader):
+        data_ = batch_to_device(data, device)
+        logger.set(data_)
+        # pred_ = refiner(data_)
+        # pred = map_tensor(pred_, lambda x: x[0].cpu())
+        data = map_tensor(data, lambda x: x[0].cpu())
+        cam_r = data['ref']['camera']
+        p3D_q = data['query']['points3D']
+
+        p2D_q, valid_q = data['query']['camera'].world2image(data['query']['T_w2cam'] * p3D_q)
+        # p2D_r_gt, valid_r = cam_r.world2image(data['T_q2r_gt'] * p3D_q)
+        # p2D_r_init, _ = cam_r.world2image(data['T_q2r_init'] * p3D_q)
+        # p2D_r_opt, _ = cam_r.world2image(pred['T_q2r_opt'][-1] * p3D_q)
+        # valid = valid_q & valid_r
+
+        # for debug
+        if 1:
+            imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
+            plot_images([imq], dpi=100)
+            if SavePlt:
+                imq_path = os.path.join(save_path, 'imq')
+                if not os.path.exists(imq_path):
+                    os.makedirs(imq_path, exist_ok=True)
+                save_plot(imq_path + f'/imq{idx:06d}.png')
+            plt.show()
+
+            plot_images([imq], dpi=100)
+            plot_keypoints([p2D_q[valid_q]], colors='lime')
+            if SavePlt:
+                imq2_path = os.path.join(save_path, 'imq_points')
+                if not os.path.exists(imq2_path):
+                    os.makedirs(imq2_path, exist_ok=True)
+                save_plot(imq2_path + f'/imq_points{idx:06d}.png')
+            plt.show()
+
+            plot_images([np.zeros_like(imq)])
+            plot_keypoints([p2D_q[valid_q]], colors='lime')
+            if SavePlt:
+                imq3_path = os.path.join(save_path, 'points')
+                if not os.path.exists(imq3_path):
+                    os.makedirs(imq3_path, exist_ok=True)
+                save_plot(imq3_path + f'/points{idx:06d}.png')
+            plt.show()
+
 
 def test(refiner, test_loader):
     refiner.eval()
@@ -326,14 +397,14 @@ if __name__ == '__main__':
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     data_conf = {
-        'max_num_points3D': 1024,  # 5000, #both:3976,3D:5000
+        'max_num_points3D': 5000, # 5000,  # 5000, #both:3976,3D:5000
         'force_num_points3D': False,
         'train_batch_size': 1,
         'test_batch_size': 1,
         'num_workers': 0,
         'satmap_zoom': 18,
-        "sampling": 'distance', #'random' #
-        "pairs": 20,
+        "sampling": 'random',
+        "pairs": 10,
         "trans_range": 20,
         "rot_range": 10,
     }
@@ -343,7 +414,9 @@ if __name__ == '__main__':
         'optimizer': {'num_iters': 5, },
     }
     dataset = 'kaist_kitti_dense' # 'kitti', 'kaist_kitti'
-    ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/resconcat_jac_iters5_t20_r10_p20/checkpoint_best.tar'
+    ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/resconcat_p5000_jac_iters5_t20_r10_p10_finetune/checkpoint_best.tar'
+
+    # ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/resconcat_jac_iters5_t20_r10_p20/checkpoint_best.tar'
     #'/ws/external/outputs/training/Kaist_Kitti_Dense/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
     # ckpt = '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
     # '/ws/external/outputs/training/LM_LiDAR_itesr5_40x40_30/checkpoint_best.tar'
@@ -387,8 +460,45 @@ if __name__ == '__main__':
 
     Val(refiner, test_loader, save_path, 0)
 
-    # if 1: # test
-    #     test(refiner, test_loader) #val_loader
-    # if 0: # visualization
-    #     Val(refiner, val_loader, save_path, 0)
+    ###################
+    ## Load raw data ##
+    ###################
+
+    data_conf = {
+        'max_num_points3D': 777777,  # 5000,  # 5000, #both:3976,3D:5000
+        'force_num_points3D': False,
+        'train_batch_size': 1,
+        'test_batch_size': 1,
+        'num_workers': 0,
+        'satmap_zoom': 18,
+        "sampling": 'random',
+        "pairs": 10,
+        "trans_range": 20,
+        "rot_range": 10,
+    }
+
+    conf = {
+        'normalize_dt': False,
+        'optimizer': {'num_iters': 5, },
+    }
+    dataset = 'kaist_kitti_dense'
+
+    if dataset == 'ford':
+        from pixloc.pixlib.datasets.ford import FordAV
+        dataset = FordAV(data_conf)
+    elif dataset == 'kitti':
+        from pixloc.pixlib.datasets.kitti import Kitti
+        dataset = Kitti(data_conf)
+    elif dataset == 'kaist_kitti':
+        from pixloc.pixlib.datasets.kaist_kitti import Kitti
+        dataset = Kitti(data_conf)
+    elif dataset == 'kaist_kitti_dense':
+        from pixloc.pixlib.datasets.kaist_kitti_dense import Kitti
+        dataset = Kitti(data_conf)
+
+    torch.set_grad_enabled(False)
+    mpl.rcParams['image.interpolation'] = 'bilinear'
+    test_loader = dataset.get_data_loader('test', shuffle=False)  # shuffle=True)
+
+    Load_raw(refiner, test_loader, save_path, 0)
 

@@ -10,6 +10,7 @@ import re
 import os
 import copy
 from collections import defaultdict
+import numpy as np
 
 import matplotlib.pyplot as plt
 from omegaconf import OmegaConf
@@ -193,6 +194,8 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
     # test
     model.eval()
     total_err = {}
+    np.random.seed(0)
+
     for corruption, test_loader in test_loaders.items():
         print(corruption)
         severity_err = {}
@@ -222,9 +225,9 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
     for corruption, severity_err in total_err.items():
         logger.info(f'[corruption: {corruption}]')
 
-        err_lat = []
-        err_lon = []
-        err_rot = []
+        errlat = []
+        errlong = []
+        errR = []
         for severity, err in severity_err.items():
             n = err.size(0)
             logger.info(f'- [{severity}] acc of lat<=1:{torch.sum(err[:, 2] <= 1) / n}')
@@ -235,21 +238,44 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
             logger.info(f'- [{severity}] var errR:{torch.var(err[:, 0])}, errlat:{torch.var(err[:, 2])}, errlong:{torch.var(err[:, 1])}')
             logger.info(f'- [{severity}] median errR:{torch.median(err[:, 0])}, errlat:{torch.median(err[:, 2])}, errlong:{torch.median(err[:, 1])}')
 
-            err_lat.append(err[:, 2])
-            err_lon.append(err[:, 1])
-            err_rot.append(err[:, 0])
+            errlat.append(err[:, 2])
+            errlong.append(err[:, 1])
+            errR.append(err[:, 0])
 
-        err_lat = torch.concat(err_lat, dim=0)
-        err_lon = torch.concat(err_lon, dim=0)
-        err_rot = torch.concat(err_rot, dim=0)
+        errlat = torch.concat(errlat, dim=0)
+        errlong = torch.concat(errlong, dim=0)
+        errR = torch.concat(errR, dim=0)
 
-        logger.info(f'- [total] acc of lat<=1:{torch.sum(err_lat <= 1) / err_lat.size(0)}')
-        logger.info(f'- [total] acc of long<=1:{torch.sum(err_lon <= 1) / err_lon.size(0)}')
-        logger.info(f'- [total] acc of R<=1:{torch.sum(err_rot <= 1) / err_rot.size(0)}')
+        logger.info(f'- [total] acc of lat<=1:{torch.sum(errlat <= 1) / errlat.size(0)}')
+        logger.info(f'- [total] acc of long<=1:{torch.sum(errlong <= 1) / errlong.size(0)}')
+        logger.info(f'- [total] acc of R<=1:{torch.sum(errR <= 1) / errR.size(0)}')
 
-        logger.info(f'- [total] mean errR:{torch.mean(err_rot)}, errlat:{torch.mean(err_lat)}, errlong:{torch.mean(err_lon)}')
-        logger.info(f'- [total] var errR:{torch.var(err_rot)}, errlat:{torch.var(err_lat)}, errlong:{torch.var(err_lon)}')
-        logger.info(f'- [total] median errR:{torch.median(err_rot)}, errlat:{torch.median(err_lat)}, errlong:{torch.median(err_lon)}')
+        logger.info(f'- [total] mean errR:{torch.mean(errR)}, errlat:{torch.mean(errlat)}, errlong:{torch.mean(errlong)}')
+        logger.info(f'- [total] var errR:{torch.var(errR)}, errlat:{torch.var(errlat)}, errlong:{torch.var(errlong)}')
+        logger.info(f'- [total] median errR:{torch.median(errR)}, errlat:{torch.median(errlat)}, errlong:{torch.median(errlong)}')
+
+        if wandb_logger != None:
+            wandb_logger.wandb.log({f'{corruption}/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/mean errlat': torch.mean(errlat)})
+            wandb_logger.wandb.log({f'{corruption}/var errlat': torch.var(errlat)})
+            wandb_logger.wandb.log({f'{corruption}/median errlat': torch.median(errlat)})
+
+            wandb_logger.wandb.log({f'{corruption}/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/mean errlon': torch.mean(errlong)})
+            wandb_logger.wandb.log({f'{corruption}t/var errlon': torch.var(errlong)})
+            wandb_logger.wandb.log({f'{corruption}/median errlon': torch.median(errlong)})
+
+            wandb_logger.wandb.log({f'{corruption}/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/rot 2': torch.sum(errR <= 2) / errR.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/rot 4': torch.sum(errR <= 4) / errR.size(0)})
+            wandb_logger.wandb.log({f'{corruption}/mean errR': torch.mean(errR)})
+            wandb_logger.wandb.log({f'{corruption}/var errR': torch.var(errR)})
+            wandb_logger.wandb.log({f'{corruption}/median errR': torch.median(errR)})
+
     return
 
 def test(rank, conf, output_dir, args, wandb_logger=None):

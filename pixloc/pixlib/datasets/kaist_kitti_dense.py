@@ -338,12 +338,13 @@ class _Dataset(Dataset):
             key_points = torch.cat([key_points, point_add], dim=0)
         grd_image['points3D'] = key_points
 
-        # ramdom shift translation and ratation on yaw
+        # ramdom shift translation and rotation on yaw
         YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
         yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
         R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
         TShiftRange = self.conf.trans_range # 5  # SIBCL: 5 meter, cvl: 10 meter
         T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
+
         # T[0] = 0 # debug: no shift on lon
         # T[1] = 0  # debug: no shift on lat
         T[2] = 0  # no shift on height
