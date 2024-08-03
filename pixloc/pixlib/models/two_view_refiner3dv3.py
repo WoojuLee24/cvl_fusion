@@ -112,7 +112,11 @@ class TwoViewRefiner3D(BaseModel):
         pred['T_q2r_opt'] = []
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
-        self.optimizer.nnrefine.initialize_rsum()   # for I controller
+        if self.conf.duplicate_optimizer_per_scale:
+            for opt in self.optimizer:
+                opt.nnrefine.initialize_rsum()
+        else:
+            self.optimizer.nnrefine.initialize_rsum()   # for I controller
 
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
