@@ -66,7 +66,7 @@ class Kitti_Voc(BaseDataset):
 
         return dataset
 
-    def get_corruption_data_loader(self, corruption, distributed=False):
+    def get_corruption_data_loader(self, corruption, distributed=False, shuffle=False):
         assert corruption in corruptions
 
         dataset = self.get_dataset(corruption)
@@ -81,7 +81,7 @@ class Kitti_Voc(BaseDataset):
             sampler = None
 
         return DataLoader(
-            dataset, batch_size=batch_size, shuffle=None,
+            dataset, batch_size=batch_size, shuffle=shuffle,
             sampler=sampler, pin_memory=True, collate_fn=collate,
             num_workers=num_workers, worker_init_fn=worker_init_fn)
 
@@ -162,6 +162,7 @@ def project_lidar_to_cam(velodyne, camera_k, lidar2cam_R, lidar2cam_T, img_size)
 class _Corruption_Dataset(Dataset):
     def __init__(self, conf, corruption):
         self.ori_root = ori_root_dir
+        self.corruption = corruption
         self.voc_root = os.path.join(voc_root_dir, corruption)
         self.conf = conf
         self.satmap_zoom = self.conf.satmap_zoom
@@ -169,7 +170,7 @@ class _Corruption_Dataset(Dataset):
         self.sat_pair = np.load(os.path.join(self.ori_root, grdimage_dir, 'groundview_satellite_pair_'+str(self.satmap_zoom)+'.npy'), allow_pickle=True)
 
         # voc_severity
-        self.voc_severity = [5] # [1,2,3,4,5]
+        self.voc_severity = [3] # [1,2,3,4,5]
 
         # read form txt files
         self.file_name = []
@@ -230,9 +231,16 @@ class _Corruption_Dataset(Dataset):
         roll, pitch, heading = float(content[3]), float(content[4]), float(content[5])
 
         # read lidar points
-        velodyne_file_name = os.path.join(self.ori_root, grdimage_dir, drive_dir, vel_dir,
-                                      image_no.lower().replace('.png', '.bin'))
-        velodyne = np.fromfile(velodyne_file_name, dtype=np.float32).reshape(-1, 4)
+        if self.corruption in ['motion_blur', 'snow', 'fog']:
+            severity = 3
+            velodyne_file_name = os.path.join(self.voc_root, str(severity), drive_dir, vel_dir,
+                                              image_no.lower().replace('.png', '.bin'))
+            velodyne = np.fromfile(velodyne_file_name, dtype=np.float32).reshape(-1, 4)
+
+        else:
+            velodyne_file_name = os.path.join(self.ori_root, grdimage_dir, drive_dir, vel_dir,
+                                          image_no.lower().replace('.png', '.bin'))
+            velodyne = np.fromfile(velodyne_file_name, dtype=np.float32).reshape(-1, 4)
         velodyne[:, 3] = 1.0
 
         # ground images, left color camera

@@ -83,7 +83,10 @@ def Val(refiner, val_loader, save_path, best_result):
     refiner.eval()
     acc = 0
     cnt = 0
-    for idx, data in zip(range(2959), val_loader):
+    # only severity 3 is supported
+    for idx, data in zip(range(605), val_loader):
+        if isinstance(data['query']['image'], dict):
+            data['query']['image'] = data['query']['image'][3]
         data_ = batch_to_device(data, device)
         logger.set(data_)
         pred_ = refiner(data_)
@@ -114,164 +117,6 @@ def Val(refiner, val_loader, save_path, best_result):
         # for debug
         if 1:
             imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
-            # plot_images([imr],dpi=50,  # set to 100-200 for higher res
-            #                  titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
-            # plot_keypoints([p2D_r_gt[valid]], colors='lime', alpha=1, ps=1)
-            # if SavePlt:
-            #     save_plot(save_path + f'/sat_points_2gt.png')
-            # plot_images([imr], dpi=50,  # set to 100-200 for higher res
-            #             titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
-            # plot_keypoints([p2D_r_init[valid]], colors='red', alpha=1, ps=1)
-            # if SavePlt:
-            #     save_plot(save_path + f'/sat_points_0init.png')
-            # plot_images([imr], dpi=50,  # set to 100-200 for higher res
-            #             titles=[(errR, errt), errP + errt])
-            # plot_keypoints([p2D_r_opt[valid]], colors='blue', alpha=1, ps=1)
-            # if SavePlt:
-            #     save_plot(save_path + f'/sat_points_1opt.png')
-            #
-            # # if SavePlt:
-            # #     save_plot(save_path + f'/sat_points.png')
-            # plt.show()
-            # plot_images([imq], dpi=100)
-            # if SavePlt:
-            #     imq_path = os.path.join(save_path, 'imq')
-            #     if not os.path.exists(imq_path):
-            #         os.makedirs(imq_path, exist_ok=True)
-            #     save_plot(imq_path + f'/ground{idx:06d}.png')
-            #
-            #
-            # plot_images([imq], dpi=100)
-            # plot_keypoints([p2D_q[valid_q]], colors='lime')
-            # if SavePlt:
-            #     imq2_path = os.path.join(save_path, 'imq2')
-            #     if not os.path.exists(imq2_path):
-            #         os.makedirs(imq2_path, exist_ok=True)
-            #     save_plot(imq2_path + f'/ground_points{idx:06d}.png')
-            #
-            # plot_keypoints([p2D_q[valid_q]], colors='lime')
-            # if SavePlt:
-            #     imq3_path = os.path.join(save_path, 'imq2')
-            #     if not os.path.exists(imq3_path):
-            #         os.makedirs(imq3_path, exist_ok=True)
-            #     save_plot(imq3_path + f'/points{idx:06d}.png')
-
-            # # add_text(0, 'reference')
-            # # add_text(1, 'query')
-            # plt.show()
-            #
-            # imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
-
-            # # g2s with GH and T
-            # imr1 = imr.permute(2, 0, 1)
-            # imq1 = imq.permute(2, 0, 1)
-            # c, a, a = imr1.size()
-            # c, h, w = imq1.size()
-            # uv1 = get_warp_sat2real(imr1)
-            # uv1 = uv1.reshape(-1, 3).contiguous() # 1d case
-            # uv1 = data['T_q2r_gt'].cuda().inv() * uv1
-            # # uv, mask = cam_query.world2image(uv1)
-            # uv, mask = data['query']['camera'].cuda().world2image(uv1)
-            # uv = uv.reshape(a, a, 2).contiguous()
-            #
-            # scale = torch.tensor([w - 1, h - 1]).to(uv)
-            # uv = (uv / scale) * 2 - 1
-            # uv = uv.clamp(min=-2, max=2)  # ideally use the mask instead
-            # g2s = torch.nn.functional.grid_sample(
-            #     imq1.cuda().unsqueeze(dim=0), uv.unsqueeze(dim=0), mode='bilinear', align_corners=True)
-
-            # plot_images([g2s[0].permute(1, 2, 0).cpu()], dpi=100)
-            # if SavePlt:
-            #     save_plot(save_path + f'/gt_g2s.png')
-            #
-            # plot_valid_points(imr, imr, p2D_r_gt[valid], p2D_r_gt[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/validgt_sat_points.png')
-            #
-            # plot_valid_points(imr, imr, p2D_r_opt[valid], p2D_r_opt[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/validopt_sat_points.png')
-            #
-            # plot_valid_points(imr, imr, p2D_r_init[valid], p2D_r_init[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/validinit_sat_points.png')
-            #
-            # plot_valid_points(imr, imq, p2D_r_gt[valid], p2D_q[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/validgt_g2s_points.png')
-            #
-            # plot_valid_points(imr, imq, p2D_r_init[valid], p2D_q[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/validinit_g2s_points.png')
-            #
-            # plot_valid_points(imr, imq, p2D_r_opt[valid], p2D_q[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/validopt_g2s_points.png')
-            #
-            # plot_valid_points(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_r_gt[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/lidargt_sat_points.png')
-            #
-            # plot_valid_points(imr, torch.ones_like(imr), p2D_r_gt[valid], p2D_q[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/lidargt_g2s_points.png')
-            #
-            # plot_valid_points(imr, torch.ones_like(imr), p2D_r_init[valid], p2D_r_init[valid])
-            # if SavePlt:
-            #     save_plot(save_path + f'/lidarinit_sat_points.png')
-            #
-            # # feature & confidence
-            # for i, (F0, F1) in enumerate(zip(pred['ref']['feature_maps'], pred['query']['feature_maps'])):
-            #     C_r, C_q = pred['ref']['confidences'][i][0], pred['query']['confidences'][i][0]
-            #     C_r = min_max_norm(C_r)
-            #     C_q = min_max_norm(C_q)
-            #     # plot_images([C_r], cmaps=mpl.cm.gnuplot2, dpi=50)
-            #     plot_images([C_r], dpi=50)
-            #     axes = plt.gcf().axes
-            #     axes[0].imshow(imr, alpha=0.2, extent=axes[0].images[0]._extent)
-            #     if SavePlt:
-            #         save_plot(save_path + f'/c_s_0_{i}.png')
-            #     plt.show()
-            #     # plot_images([C_q], cmaps=mpl.cm.gnuplot2, dpi=50)
-            #     plot_images([C_q], dpi=50)
-            #     axes = plt.gcf().axes
-            #     axes[0].imshow(imq, alpha=0.2, extent=axes[0].images[0]._extent)
-            #     if SavePlt:
-            #         save_plot(save_path + f'/c_g_0_{i}.png')
-            #     plt.show()
-            #
-            #     print(F0.dtype, torch.min(F0), torch.max(F0))
-            #     print(F1.dtype, torch.min(F1), torch.max(F1))
-            #     plot_images(features_to_RGB(F0.numpy(), skip=1), dpi=50)
-            #     if SavePlt:
-            #         save_plot(save_path + f'/f_s_{i}.png')
-            #     plt.show()
-            #     plot_images(features_to_RGB(F1.numpy(), skip=1), dpi=50)
-            #     if SavePlt:
-            #         save_plot(save_path + f'/f_g_{i}.png')
-            #     plt.show()
-
-
-
-
-                # plot_images(F0.numpy(), dpi=50)
-                # if SavePlt:
-                #     save_plot(save_path + f'/f_s_{i}.png')
-                # plt.show()
-                # plot_images(F1.numpy(), dpi=50)
-                # if SavePlt:
-                #     save_plot(save_path + f'/f_g_{i}.png')
-                # plt.show()
-
-            # costs = logger.costs
-            # fig, axes = plt.subplots(1, len(costs), figsize=(len(costs)*4.5, 4.5))
-            # for i, (ax, cost) in enumerate(zip(axes, costs)):
-            #     ax.plot(cost) if len(cost)>1 else ax.scatter(0., cost)
-            #     ax.set_title(f'({i}) Scale {i//3} Level {i%3}')
-            #     ax.grid()
-            # plt.show()
-
-            # imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
             colors = mpl.cm.cool(1 - np.linspace(0, 1, len(logger.camera_trajectory)))[:, :3]
             plot_images([imr])
             axes = plt.gcf().axes
@@ -299,11 +144,11 @@ def Val(refiner, val_loader, save_path, best_result):
 
     acc = acc/cnt
     print('acc of a epoch:#####',acc)
-    if acc > best_result:
-        print('best acc:@@@@@', acc)
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        torch.save(refiner.state_dict(), save_path + 'Model_best.pth')
+    # if acc > best_result:
+    #     print('best acc:@@@@@', acc)
+    #     if not os.path.exists(save_path):
+    #         os.makedirs(save_path)
+    #     torch.save(refiner.state_dict(), save_path + 'Model_best.pth')
     return acc
 
 
@@ -311,7 +156,9 @@ def Load_raw(refiner, val_loader, save_path, best_result):
     refiner.eval()
     acc = 0
     cnt = 0
-    for idx, data in zip(range(2959), val_loader):
+    for idx, data in zip(range(605), val_loader):
+        if isinstance(data['query']['image'], dict):
+            data['query']['image'] = data['query']['image'][3]
         data_ = batch_to_device(data, device)
         logger.set(data_)
         # pred_ = refiner(data_)
@@ -413,9 +260,19 @@ if __name__ == '__main__':
         'normalize_dt': False,
         'optimizer': {'num_iters': 5, },
     }
-    dataset = 'kaist_kitti_dense' # 'kitti', 'kaist_kitti'
-    ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/resconcat_p5000_jac_iters5_t20_r10_p10_finetune/checkpoint_best.tar'
 
+    dataset_name = 'kitti' # 'kaist_kitti_dense' # 'kitti_voc' #'kaist_kitti_dense' # 'kitti', 'kaist_kitti'
+    corruption = 'snow'
+
+    # for kitti, kitti_voc
+    # ckpt = '/ws/external/outputs/training/KITTI/resconcat_p5000_reproj2_jac_iters5_t20_r10/checkpoint_best.tar'
+    ckpt = '/ws/external/outputs/training/KITTI/LM_p5000_iters5_t20_r10/checkpoint_best.tar'
+
+    # # for kaist_kitti_dense
+    # ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/resconcat_p5000_jac_iters5_t20_r10_p10_finetune/checkpoint_best.tar'
+    # ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/LM_p5000_iters5_t20_r10/checkpoint_best.tar'
+
+    experiments_name = ckpt.split('/')[-2]
     # ckpt = '/ws/external/outputs/training/Kaist_Kitti_Dense/resconcat_jac_iters5_t20_r10_p20/checkpoint_best.tar'
     #'/ws/external/outputs/training/Kaist_Kitti_Dense/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
     # ckpt = '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
@@ -423,28 +280,39 @@ if __name__ == '__main__':
     # '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
     # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
 
-    save_path = f'/ws/external/visualizations/features/{dataset}' # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
+    if dataset_name == 'kitti_voc':
+        save_path = f'/ws/external/visualizations/demo/{dataset_name}/{corruption}/{experiments_name}' # '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
+    else:
+        save_path = f'/ws/external/visualizations/demo/{dataset_name}/{experiments_name}'
+
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-
-    if dataset == 'ford':
-        from pixloc.pixlib.datasets.ford import FordAV
-        dataset = FordAV(data_conf)
-    elif dataset == 'kitti':
-        from pixloc.pixlib.datasets.kitti import Kitti
-        dataset = Kitti(data_conf)
-    elif dataset == 'kaist_kitti':
-        from pixloc.pixlib.datasets.kaist_kitti import Kitti
-        dataset = Kitti(data_conf)
-    elif dataset == 'kaist_kitti_dense':
-        from pixloc.pixlib.datasets.kaist_kitti_dense import Kitti
-        dataset = Kitti(data_conf)
 
     torch.set_grad_enabled(False);
     mpl.rcParams['image.interpolation'] = 'bilinear'
 
-    val_loader = dataset.get_data_loader('val', shuffle=False)  # or 'train' ‘val’
-    test_loader = dataset.get_data_loader('test', shuffle=False)  # shuffle=True)
+    if dataset_name == 'ford':
+        from pixloc.pixlib.datasets.ford import FordAV
+        dataset = FordAV(data_conf)
+        test_loader = dataset.get_data_loader('test', shuffle=False)
+    elif dataset_name == 'kitti':
+        from pixloc.pixlib.datasets.kitti import Kitti
+        dataset = Kitti(data_conf)
+        test_loader = dataset.get_data_loader('test', shuffle=False)
+    elif dataset_name == 'kitti_voc':
+        from pixloc.pixlib.datasets.kitti_voc import Kitti_Voc
+        dataset = Kitti_Voc(data_conf)
+        test_loader = dataset.get_corruption_data_loader(corruption, shuffle=False)
+    elif dataset_name == 'kaist_kitti':
+        from pixloc.pixlib.datasets.kaist_kitti import Kitti
+        dataset = Kitti(data_conf)
+        test_loader = dataset.get_data_loader('test', shuffle=False)
+    elif dataset_name == 'kaist_kitti_dense':
+        from pixloc.pixlib.datasets.kaist_kitti_dense import Kitti
+        dataset = Kitti(data_conf)
+        test_loader = dataset.get_data_loader('test', shuffle=False)
+
+    # val_loader = dataset.get_data_loader('val', shuffle=False)  # or 'train' ‘val’
 
     # Name of the example experiment. Replace with your own training experiment.
     device = 'cuda'
@@ -481,24 +349,29 @@ if __name__ == '__main__':
         'normalize_dt': False,
         'optimizer': {'num_iters': 5, },
     }
-    dataset = 'kaist_kitti_dense'
 
-    if dataset == 'ford':
+
+    if dataset_name == 'ford':
         from pixloc.pixlib.datasets.ford import FordAV
         dataset = FordAV(data_conf)
-    elif dataset == 'kitti':
+        test_loader = dataset.get_data_loader('test', shuffle=False)
+    elif dataset_name == 'kitti':
         from pixloc.pixlib.datasets.kitti import Kitti
         dataset = Kitti(data_conf)
-    elif dataset == 'kaist_kitti':
+        test_loader = dataset.get_data_loader('test', shuffle=False)
+    elif dataset_name == 'kitti_voc':
+        from pixloc.pixlib.datasets.kitti_voc import Kitti_Voc
+        dataset = Kitti_Voc(data_conf)
+        test_loader = dataset.get_corruption_data_loader(corruption, shuffle=False)
+    elif dataset_name == 'kaist_kitti':
         from pixloc.pixlib.datasets.kaist_kitti import Kitti
         dataset = Kitti(data_conf)
-    elif dataset == 'kaist_kitti_dense':
+        test_loader = dataset.get_data_loader('test', shuffle=False)
+    elif dataset_name == 'kaist_kitti_dense':
         from pixloc.pixlib.datasets.kaist_kitti_dense import Kitti
         dataset = Kitti(data_conf)
+        test_loader = dataset.get_data_loader('test', shuffle=False)
 
-    torch.set_grad_enabled(False)
-    mpl.rcParams['image.interpolation'] = 'bilinear'
-    test_loader = dataset.get_data_loader('test', shuffle=False)  # shuffle=True)
 
-    Load_raw(refiner, test_loader, save_path, 0)
+    # Load_raw(refiner, test_loader, save_path, 0)
 

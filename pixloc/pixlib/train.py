@@ -201,6 +201,7 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
         severity_err = {}
 
         for idx, data in enumerate(tqdm(test_loader)):
+        # for idx, data in zip(range(3), test_loader):
             severity_images = data['query']['image'].copy()
 
             for severity, severity_image in severity_images.items():
@@ -255,6 +256,22 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
         logger.info(f'- [total] median errR:{torch.median(errR)}, errlat:{torch.median(errlat)}, errlong:{torch.median(errlong)}')
 
         if wandb_logger != None:
+            wandb_logger.wandb.log({f'total/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+            wandb_logger.wandb.log({f'total/lat 1': torch.sum(errlat <= 1) / errlat.size(0)})
+            wandb_logger.wandb.log({f'total/lon 1': torch.sum(errlong <= 1) / errlong.size(0)})
+
+            wandb_logger.wandb.log({f'total/mean errR': torch.mean(errR)})
+            wandb_logger.wandb.log({f'total/mean errlat': torch.mean(errlat)})
+            wandb_logger.wandb.log({f'total/mean errlong': torch.mean(errlong)})
+
+            wandb_logger.wandb.log({f'total/var errR': torch.var(errR)})
+            wandb_logger.wandb.log({f'total/var errlat': torch.var(errlat)})
+            wandb_logger.wandb.log({f'total/var errlong': torch.var(errlong)})
+
+            wandb_logger.wandb.log({f'total/median errR': torch.median(errR)})
+            wandb_logger.wandb.log({f'total/median errlat': torch.median(errlat)})
+            wandb_logger.wandb.log({f'total/median errlong': torch.median(errlong)})
+
             wandb_logger.wandb.log({f'{corruption}/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
             wandb_logger.wandb.log({f'{corruption}/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
             wandb_logger.wandb.log({f'{corruption}/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
@@ -266,7 +283,7 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
             wandb_logger.wandb.log({f'{corruption}/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
             wandb_logger.wandb.log({f'{corruption}/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
             wandb_logger.wandb.log({f'{corruption}/mean errlon': torch.mean(errlong)})
-            wandb_logger.wandb.log({f'{corruption}t/var errlon': torch.var(errlong)})
+            wandb_logger.wandb.log({f'{corruption}/var errlon': torch.var(errlong)})
             wandb_logger.wandb.log({f'{corruption}/median errlon': torch.median(errlong)})
 
             wandb_logger.wandb.log({f'{corruption}/rot 1': torch.sum(errR <= 1) / errR.size(0)})
@@ -275,6 +292,7 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
             wandb_logger.wandb.log({f'{corruption}/mean errR': torch.mean(errR)})
             wandb_logger.wandb.log({f'{corruption}/var errR': torch.var(errR)})
             wandb_logger.wandb.log({f'{corruption}/median errR': torch.median(errR)})
+
 
     return
 

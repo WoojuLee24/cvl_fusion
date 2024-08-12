@@ -519,22 +519,22 @@ class NNrefinev1_0(nn.Module):
                 p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
 
             if self.args.version == 1.0:
-                r = torch.cat([query_feat, ref_feat, query_feat - ref_feat,
-                               p3D_query_feat, p3D_ref_feat, self.args.kp * (p3D_query_feat - p3D_ref_feat)], dim=-1)
+                r = torch.cat([query_feat, ref_feat, self.args.kp * (query_feat - ref_feat),
+                               p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
             elif self.args.version == 1.01:
-                r = torch.cat([ref_feat, query_feat - ref_feat,
-                               p3D_query_feat, p3D_ref_feat, self.args.kp(p3D_query_feat - p3D_ref_feat)], dim=-1)
+                r = torch.cat([ref_feat, self.args.kp(query_feat - ref_feat),
+                               p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
             elif self.args.version == 1.02:
-                r = torch.cat([query_feat, ref_feat, query_feat - ref_feat,
-                               p3D_ref_feat, self.args.kp(p3D_query_feat - p3D_ref_feat)], dim=-1)
+                r = torch.cat([query_feat, ref_feat, self.args.kp(query_feat - ref_feat),
+                               p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
             elif self.args.version == 1.03:
                 r = torch.cat([query_feat, ref_feat, self.args.kp(query_feat - ref_feat),
                                p3D_query_feat, p3D_ref_feat], dim=-1)
             elif self.args.version == 1.04:
-                self.r_sum[2-scale] += p3D_query_feat - p3D_ref_feat
-                r = torch.cat([query_feat, ref_feat, query_feat - ref_feat,
+                self.r_sum[2-scale] += query_feat - ref_feat
+                r = torch.cat([query_feat, ref_feat, self.args.kp * (query_feat - ref_feat),
                                p3D_query_feat, p3D_ref_feat,
-                               self.args.kp * (p3D_query_feat - p3D_ref_feat),
+                               p3D_query_feat - p3D_ref_feat,
                                self.args.ki * self.r_sum[2-scale]
                                ], dim=-1)
 
