@@ -130,13 +130,14 @@ class TwoViewRefiner2D(BaseModel):
                                          data['query']['image'], data['ref']['image'], data)
 
             from pixloc.visualization.viz_2d import imsave
-            imsave(q2r_img[0], '/ws/external/visualizations/dense', '0q2r')
-            imsave(data['query']['image'][0], '/ws/external/visualizations/dense', '0grd')
-            imsave(data['ref']['image'][0], '/ws/external/visualizations/dense', '0sat')
-            imsave(r2q_img[0], '/ws/external/visualizations/dense', '1r2q')
-            imsave(data['query']['image'][0], '/ws/external/visualizations/dense', '1grd')
+            path = 'debug_images/kitti2' #'visualizations/dense'
+            imsave(q2r_img[0], f'/ws/external/{path}', '0q2r')
+            imsave(data['query']['image'][0], f'/ws/external/{path}', '0grd')
+            imsave(data['ref']['image'][0], f'/ws/external/{path}', '0sat')
+            imsave(r2q_img[0], f'/ws/external/{path}', '1r2q')
+            imsave(data['query']['image'][0], f'/ws/external/{path}', '1grd')
 
-            imsave(data['ref']['image'][0], '/ws/external/visualizations/dense', '1sat')
+            imsave(data['ref']['image'][0], f'/ws/external/{path}', '1sat')
             # print(f"roll: {data['roll']}, pitch: {data['pitch']}")
 
         for i in reversed(range(len(self.extractor.scales))):

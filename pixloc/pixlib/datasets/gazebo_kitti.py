@@ -149,7 +149,7 @@ class _Dataset(Dataset):
 
         # read form txt files
         self.file_name = []
-        txt_file_name = os.path.join(self.root, grdimage_dir, 'split', split+'_files.txt')
+        txt_file_name = os.path.join(self.root, grdimage_dir, '2024_08_12', 'split', split+'_files.txt')
         with open(txt_file_name, "r") as txt_f:
             lines = txt_f.readlines()
             for line in lines:

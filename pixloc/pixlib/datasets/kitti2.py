@@ -22,6 +22,8 @@ from pixloc.pixlib.geometry import Camera, Pose
 from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
 from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
+from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
+
 
 root_dir = "/ws/data/kitti-vo" # your kitti dir
 satmap_zoom = 18 
@@ -243,22 +245,23 @@ class _Dataset(Dataset):
             'camera': camera.float(),
             'T_w2cam': Pose.from_4x4mat(np.eye(4)).float(),  # already consider calibration in points3D
             'camera_h': torch.tensor(1.65),
+
         }
 
-        if self.conf.pose_from == 'aa':
-            grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]), np.zeros(3)) # grd_x:east, grd_y:north, grd_z:up
-            grd2cam = imu2camera@grd2imu
-            grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])# grd z->-sat z; grd x->sat x, grd y->-sat y
-            grd2sat = Pose.from_4x4mat(grd2sat)
-            q2r_gt = grd2sat @ (grd2cam.inv())
-        elif self.conf.pose_from == 'rt':
-            R = np.array([[np.cos(-heading), -np.sin(-heading), 0], [np.sin(-heading), np.cos(-heading), 0], [0, 0, 1.]])
-            t = np.zeros(3)
-            grd2imu = Pose.from_Rt(R, t)
-            grd2cam = imu2camera @ grd2imu
-            grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
-            grd2sat = Pose.from_4x4mat(grd2sat)
-            q2r_gt = grd2sat @ (grd2cam.inv())
+        # if self.conf.pose_from == 'aa':
+        #     grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]), np.zeros(3)) # grd_x:east, grd_y:north, grd_z:up
+        #     grd2cam = imu2camera@grd2imu
+        #     grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])# grd z->-sat z; grd x->sat x, grd y->-sat y
+        #     grd2sat = Pose.from_4x4mat(grd2sat)
+        #     q2r_gt = grd2sat @ (grd2cam.inv())
+        # elif self.conf.pose_from == 'rt':
+        #     R = np.array([[np.cos(-heading), -np.sin(-heading), 0], [np.sin(-heading), np.cos(-heading), 0], [0, 0, 1.]])
+        #     t = np.zeros(3)
+        #     grd2imu = Pose.from_Rt(R, t)
+        #     grd2cam = imu2camera @ grd2imu
+        #     grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
+        #     grd2sat = Pose.from_4x4mat(grd2sat)
+        #     q2r_gt = grd2sat @ (grd2cam.inv())
 
         # satellite map
         SatMap_name = self.sat_pair.item().get(file_name)
@@ -273,13 +276,32 @@ class _Dataset(Dataset):
         x_sg, y_sg = gps_func.angular_distance_to_xy_distance_v2(sat_gps[0], sat_gps[1], location[0],
                                                                  location[1])
         meter_per_pixel = Kitti_utils.get_meter_per_pixel(self.satmap_zoom, scale=1)
-        x_sg = int(x_sg / meter_per_pixel)
-        y_sg = int(-y_sg / meter_per_pixel)
+        # x_sg = int(x_sg / meter_per_pixel)
+        # y_sg = int(-y_sg / meter_per_pixel)
+
+
+        if self.conf.pose_from == 'aa':
+            grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]), np.zeros(3)) # grd_x:east, grd_y:north, grd_z:up
+            grd2cam = imu2camera@grd2imu
+            grd2sat = np.array([[1., 0, 0, x_sg], [0, -1, 0, -y_sg], [0, 0, -1, 0], [0, 0, 0, 1]])# grd z->-sat z; grd x->sat x, grd y->-sat y
+            grd2sat = Pose.from_4x4mat(grd2sat)
+            q2r_gt = grd2sat @ (grd2cam.inv())
+        elif self.conf.pose_from == 'rt':
+            R = np.array([[np.cos(-heading), -np.sin(-heading), 0], [np.sin(-heading), np.cos(-heading), 0], [0, 0, 1.]])
+            t = np.zeros(3)
+            grd2imu = Pose.from_Rt(R, t)
+            grd2cam = imu2camera @ grd2imu
+            grd2sat = np.array([[1., 0, 0, x_sg], [0, -1, 0, -y_sg], [0, 0, -1, 0], [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
+            grd2sat = Pose.from_4x4mat(grd2sat)
+            q2r_gt = grd2sat @ (grd2cam.inv())
+
 
         # add the offset between camera and body to shift the center to query camera
         cam_pixel = q2r_gt*camera_center_loc
-        cam_location_x = x_sg + satellite_ori_size / 2.0 + cam_pixel[0, 0]
-        cam_location_y = y_sg + satellite_ori_size / 2.0 + cam_pixel[0, 1]
+        # cam_location_x = x_sg + satellite_ori_size / 2.0 + cam_pixel[0, 0]
+        # cam_location_y = y_sg + satellite_ori_size / 2.0 + cam_pixel[0, 1]
+        cam_location_x = satellite_ori_size / 2.0 + cam_pixel[0, 0]
+        cam_location_y = satellite_ori_size / 2.0 + cam_pixel[0, 1]
 
         # sat
         camera = Camera.from_colmap(dict(
@@ -345,12 +367,13 @@ class _Dataset(Dataset):
         }
 
         # debug
-        if 1:
+        if 0:
             image = transforms.functional.to_pil_image(grd_left, mode='RGB')
-            image.save('/ws/external/debug_images/kitti/grd.png')
+            image.save('/ws/external/debug_images/kitti2/grd.png')
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
-            image.save('/ws/external/debug_images/kitti/sat.png')
-        if 1:
+            image.save('/ws/external/debug_images/kitti2/sat.png')
+
+        if 0:
             fig = plt.figure(figsize=plt.figaspect(0.5))
             ax1 = fig.add_subplot(1, 2, 1)
             ax2 = fig.add_subplot(1, 2, 2)
@@ -412,10 +435,9 @@ class _Dataset(Dataset):
             plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=10)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.savefig('/ws/external/debug_images/kitti/direction.png')
-
+            plt.savefig('/ws/external/debug_images/kitti2/direction.png')
             plt.show()
-            print(idx, file_name, pitch, roll)
+            print(idx,file_name, pitch, roll)
 
         return data
 
