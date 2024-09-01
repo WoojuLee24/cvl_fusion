@@ -788,8 +788,10 @@ class TwoViewRefiner2D(BaseModel):
 
         @torch.no_grad()
         def scaled_pose_error(T_q2r):
-            err_R, err_t = (T_r2q_gt@T_q2r).magnitude()
-            err_lat, err_long = (T_r2q_gt@T_q2r).magnitude_latlong()
+            # err_R, err_t = (T_r2q_gt@T_q2r).magnitude()
+            # err_lat, err_long = (T_r2q_gt@T_q2r).magnitude_latlong()
+            err_R, err_t = (T_q2r @ T_r2q_gt).magnitude()
+            err_lat, err_long = (T_q2r @ T_r2q_gt).magnitude_latlong()
             return err_R, err_t, err_lat, err_long
 
         metrics = {}
