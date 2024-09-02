@@ -283,7 +283,7 @@ class _Dataset(Dataset):
         if self.conf.pose_from == 'aa':
             grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]), np.zeros(3)) # grd_x:east, grd_y:north, grd_z:up
             grd2cam = imu2camera@grd2imu
-            grd2sat = np.array([[1., 0, 0, x_sg], [0, -1, 0, -y_sg], [0, 0, -1, 0], [0, 0, 0, 1]])# grd z->-sat z; grd x->sat x, grd y->-sat y
+            grd2sat = np.array([[1., 0, 0,0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])# grd z->-sat z; grd x->sat x, grd y->-sat y
             grd2sat = Pose.from_4x4mat(grd2sat)
             q2r_gt = grd2sat @ (grd2cam.inv())
         elif self.conf.pose_from == 'rt':
@@ -291,17 +291,21 @@ class _Dataset(Dataset):
             t = np.zeros(3)
             grd2imu = Pose.from_Rt(R, t)
             grd2cam = imu2camera @ grd2imu
-            grd2sat = np.array([[1., 0, 0, x_sg], [0, -1, 0, -y_sg], [0, 0, -1, 0], [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
+            grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
             grd2sat = Pose.from_4x4mat(grd2sat)
             q2r_gt = grd2sat @ (grd2cam.inv())
 
-
         # add the offset between camera and body to shift the center to query camera
-        cam_pixel = q2r_gt*camera_center_loc
-        # cam_location_x = x_sg + satellite_ori_size / 2.0 + cam_pixel[0, 0]
-        # cam_location_y = y_sg + satellite_ori_size / 2.0 + cam_pixel[0, 1]
-        cam_location_x = satellite_ori_size / 2.0 + cam_pixel[0, 0]
-        cam_location_y = satellite_ori_size / 2.0 + cam_pixel[0, 1]
+        cam_pixel = q2r_gt * camera_center_loc
+        # apply offset on the q2r_gt
+        translation_offset = np.array([[1., 0, 0, x_sg], [0, 1, 0, -y_sg], [0, 0, 1, 0],
+                                       [0, 0, 0, 1]])
+        translation_offset = Pose.from_4x4mat(translation_offset)
+        q2r_gt = translation_offset @ q2r_gt
+
+        # apply offset on the ref camera
+        cam_location_x = satellite_ori_size / 2.0 + cam_pixel[0, 0]  # diff
+        cam_location_y = satellite_ori_size / 2.0 + cam_pixel[0, 1]  # diff
 
         # sat
         camera = Camera.from_colmap(dict(
