@@ -15,15 +15,17 @@ import os
 import time
 from PIL import Image as PILI
 import numpy as np
+from tqdm import tqdm
 
 # root_dir = "/ws/data/kitti-vo"
 # satmap_dir = 'satmap_18'
 # grdimage_dir = 'raw_data'
-root_dir = "/media/TrainDataset/kitti-vo"
-satmap_dir = 'satmap_18'
+root_dir = "/ws/data/kitti-vo"
+satmap_dir = 'satmap_z18_s2'
 grdimage_dir = 'raw_data'
+gps_center = 'satellite_gps_center2.npy' # 'satellite_gps_center.npy'
 
-with open(os.path.join(root_dir, grdimage_dir, 'satellite_gps_center.npy'), 'rb') as f:
+with open(os.path.join(root_dir, grdimage_dir, gps_center), 'rb') as f:
     Geodetic = np.load(f)
 
 
@@ -42,7 +44,7 @@ satellite_folder = os.path.join(root_dir, satmap_dir)
 if not os.path.exists(satellite_folder):
         os.makedirs(satellite_folder)
 
-for i in range(nb_satellites):
+for i in tqdm(range(nb_satellites)):
 
     lat_a, long_a, height_a = Geodetic[i, 0], Geodetic[i, 1], Geodetic[i, 2]
 
@@ -72,3 +74,7 @@ for i in range(nb_satellites):
     cur_image = PILI.open(bytesio)
 
     cur_image.save(image_name)
+
+
+
+
