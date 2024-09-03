@@ -33,7 +33,7 @@ def from_homogeneous(points):
     return points[..., :-1] / points[..., -1:]
 
 
-@torch.jit.script
+# @torch.jit.script
 def undistort_points(pts, dist):
     '''Undistort normalized 2D coordinates
        and check for validity of the distortion model.

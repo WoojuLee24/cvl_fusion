@@ -400,7 +400,7 @@ class Camera(TensorWrapper):
         J = J.reshape(p3d.shape[:-1] + (2, 3))
         return J  # N x 2 x 3
 
-    @autocast
+    # @autocast
     def undistort(self, pts: torch.Tensor) -> Tuple[torch.Tensor]:
         '''Undistort normalized 2D coordinates
            and check for validity of the distortion model.

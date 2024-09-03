@@ -51,7 +51,8 @@ class Kitti(BaseDataset):
         'trans_range': 5,
         'satmap_zoom': 18,
         'sampling': 'random',
-        'pose_from': 'aa',
+        'pose_from': 'rt',
+        # 'project': 2,
     }
 
     def _init(self, conf):
