@@ -321,7 +321,7 @@ class _Dataset(Dataset):
         }
         # project to sat and find visible mask
         cam_3d = cam_3d.T
-        _, visible = camera.world2image(torch.from_numpy(cam_3d).float())
+        _, visible = camera.world2image2(torch.from_numpy(cam_3d).float())
         cam_3d = cam_3d[visible]
         key_points = torch.from_numpy(cam_3d).float()
         grd_image['points3D_type'] = 'lidar'

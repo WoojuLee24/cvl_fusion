@@ -369,18 +369,18 @@ class Camera(TensorWrapper):
         p2d = p3d[..., :-1] / z.unsqueeze(-1)
         return p2d, valid
 
-    @autocast
-    def project3d(self, p3d: torch.Tensor) -> Tuple[torch.Tensor]:
-        '''Project 3D points into the camera plane and check for visibility.'''
-        if np.infty in self._data:
-            z = torch.ones_like(p3d[..., -1])
-        else:
-            z = p3d[..., -1]
-        valid = z > self.eps
-        z = z.clamp(min=self.eps)
-
-        p3d = p3d / z.unsqueeze(-1)
-        return p3d, valid
+    # @autocast
+    # def project3d(self, p3d: torch.Tensor) -> Tuple[torch.Tensor]:
+    #     '''Project 3D points into the camera plane and check for visibility.'''
+    #     if np.infty in self._data:
+    #         z = torch.ones_like(p3d[..., -1])
+    #     else:
+    #         z = p3d[..., -1]
+    #     valid = z > self.eps
+    #     z = z.clamp(min=self.eps)
+    #
+    #     p3d = p3d / z.unsqueeze(-1)
+    #     return p3d, valid
 
     def J_project(self, p3d: torch.Tensor):
         if np.infty in self._data:
@@ -397,6 +397,17 @@ class Camera(TensorWrapper):
             J = torch.stack([
                 1 / z, zero, -x / z ** 2,
                 zero, 1 / z, -y / z ** 2], dim=-1)
+        J = J.reshape(p3d.shape[:-1] + (2, 3))
+        return J  # N x 2 x 3
+
+
+    def J_project2(self, p3d: torch.Tensor):
+        x, y, z = p3d[..., 0], p3d[..., 1], p3d[..., 2]
+        zero = torch.zeros_like(z)
+        z = z.clamp(min=self.eps)
+        J = torch.stack([
+            1 / z, zero, -x / z ** 2,
+            zero, 1 / z, -y / z ** 2], dim=-1)
         J = J.reshape(p3d.shape[:-1] + (2, 3))
         return J  # N x 2 x 3
 
@@ -453,6 +464,13 @@ class Camera(TensorWrapper):
              @ self.J_project(p3d))
         return J, valid
 
+    def J_world2image2(self, p3d: torch.Tensor):
+        p2d_dist, valid = self.project2(p3d)
+        J = (self.J_denormalize()
+             @ self.J_undistort(p2d_dist)
+             @ self.J_project2(p3d))
+        return J, valid
+
     def image2world(self, p2d: torch.Tensor) -> torch.Tensor:
         '''Transform 2D pixel coordinates into 3D points, scale unknown .'''
         if p2d.dim() == 4:
@@ -464,6 +482,16 @@ class Camera(TensorWrapper):
             p3d = torch.cat([p3d_xy, torch.zeros_like(p3d_xy[..., :1])], dim=-1)
         else:
             p3d = torch.cat([p3d_xy, torch.ones_like(p3d_xy[...,:1])], dim=-1)
+        return p3d
+
+
+    def image2world2(self, p2d: torch.Tensor) -> torch.Tensor:
+        '''Transform 2D pixel coordinates into 3D points, scale unknown .'''
+        if p2d.dim() == 4:
+            p3d_xy = (p2d - self.c[:, None, None, :]) / self.f[:, None, None, :]
+        else:
+            p3d_xy = (p2d - self.c.unsqueeze(-2)) / self.f.unsqueeze(-2)
+        p3d = torch.cat([p3d_xy, torch.ones_like(p3d_xy[...,:1])], dim=-1)
         return p3d
 
     @autocast

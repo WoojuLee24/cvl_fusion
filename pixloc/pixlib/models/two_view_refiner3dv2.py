@@ -128,7 +128,7 @@ class TwoViewRefiner3D(BaseModel):
                 F_q = pred['query']['feature_maps'][i]
             cam_q = pred['query']['camera_pyr'][i]
 
-            p2D_query, visible = cam_q.world2image(data['query']['T_w2cam']*p3D_query)
+            p2D_query, visible = cam_q.world2image2(data['query']['T_w2cam']*p3D_query)
             F_q, mask, _ = opt.interpolator(F_q, p2D_query)
             mask &= visible
 
@@ -399,7 +399,7 @@ class TwoViewRefiner3D(BaseModel):
         points_3d = data['query']['points3D']
 
         def project(T_q2r):
-            return cam_ref.world2image(T_q2r * points_3d)
+            return cam_ref.world2image2(T_q2r * points_3d)
 
         p2D_r_gt, mask = project(data['T_q2r_gt'])
         p2D_r_i, mask_i = project(data['T_q2r_init'])

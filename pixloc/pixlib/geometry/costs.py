@@ -52,7 +52,7 @@ class DirectAbsoluteCost:
             do_gradients: bool = False):
 
         p3D_r = T_q2r * p3D # q_3d to q2r_3d
-        p2D, visible = camera.world2image(p3D_r) # q2r_3d to q2r_2d
+        p2D, visible = camera.world2image2(p3D_r) # q2r_3d to q2r_2d
         F_p2D_raw, valid, gradients = self.interpolator(
             F_ref, p2D, return_gradients=do_gradients) # get g2r 2d features
         valid = valid & visible
@@ -166,7 +166,7 @@ class DirectAbsoluteCost:
             p3D_r: Tensor, F_p2D_raw: Tensor, J_f_p2D: Tensor):
 
         J_p3D_T = T_q2r.J_transform2(p3D_r)
-        J_p2D_p3D, _ = camera.J_world2image(p3D_r)
+        J_p2D_p3D, _ = camera.J_world2image2(p3D_r)
 
         if self.normalize:
             J_f_p2D = J_normalization(F_p2D_raw) @ J_f_p2D
