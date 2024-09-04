@@ -62,6 +62,7 @@ class NNOptimizer3D(BaseOptimizer):
         normalize_geometry_feature='none',
         opt_list=False,
         jacobian=False,
+        multi_pose=1,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,

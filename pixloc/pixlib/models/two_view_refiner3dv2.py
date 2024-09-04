@@ -14,6 +14,7 @@ from pixloc.pixlib.models.base_model import BaseModel
 from pixloc.pixlib.models import get_model
 from pixloc.pixlib.models.utils import masked_mean, merge_confidence_map, extract_keypoints
 from pixloc.pixlib.geometry.losses import scaled_barron
+from pixloc.pixlib.geometry.wrappers import Camera, Pose
 from pixloc.visualization.viz_2d import features_to_RGB,plot_images,plot_keypoints
 from pixloc.pixlib.utils.tensor import map_tensor
 import matplotlib as mpl
@@ -55,6 +56,7 @@ class TwoViewRefiner3D(BaseModel):
             'attention': False,
             'opt_list': False,
             'jacobian': False,
+            'multi_pose': 1,
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -147,12 +149,18 @@ class TwoViewRefiner3D(BaseModel):
                 F_q = (F_q - F_q.mean(dim=2, keepdim=True)) / (F_q.std(dim=2, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
-            # T_opt, failed, shiftxyr = opt(dict(
-            #     p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
-            #     mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
-            T_opt, failed = opt(dict(
+            T_opt, failed, shiftxyr = opt(dict(
                 p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
                 mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
+
+
+            # pose_estimator_input = dict(
+            #     p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
+            #     mask=mask, W_ref_q=W_ref_q, data=data, scale=i) # TODO
+            # pose_estimator_input = self.repeat_features(pose_estimator_input, repeat=self.conf.optimizer.multi_pose) # TODO
+            # T_opt, failed = opt(pose_estimator_input)
+
+            # T_opt = Pose(T_opt._data[:2])  # TODO
 
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
@@ -177,6 +185,32 @@ class TwoViewRefiner3D(BaseModel):
             #     pred['pose_loss'].append(diff_loss)
 
         return pred
+
+    def repeat_features(self, features, repeat):
+        new_features = dict()
+        for key, value in features.items():
+            if isinstance(value, Camera):
+                new_value = Camera(value._data.repeat_interleave(repeat, dim=0))
+            elif isinstance(value, Pose):
+                new_value = Pose(value._data.repeat_interleave(repeat, dim=0))
+            elif isinstance(value, torch.Tensor):
+                new_value = value.repeat_interleave(repeat, dim=0)
+            elif isinstance(value, tuple):
+                new_value = ()
+                for v in value:
+                    if isinstance(v, torch.Tensor):
+                        v = v.repeat_interleave(repeat, dim=0)
+                    new_value = new_value + (v,)
+            elif isinstance(value, dict):
+                value['mean'] = value['mean'].repeat_interleave(repeat, dim=0).detach()
+                value['std'] = value['std'].repeat_interleave(repeat, dim=0).detach()
+                value['shift_range'] = value['shift_range'].repeat_interleave(repeat, dim=0).detach()
+                new_value = value
+            else:
+                new_value = value
+            new_features[key] = new_value
+        return new_features
+
 
     def preject_l1loss(self, opt, p3D, F_ref, F_query, T_gt, camera, mask=None, W_ref_query= None):
         args = (camera, p3D, F_ref, F_query, W_ref_query)
@@ -599,8 +633,10 @@ class TwoViewRefiner3D(BaseModel):
 
         @torch.no_grad()
         def scaled_pose_error(T_q2r):
-            err_R, err_t = (T_r2q_gt@T_q2r).magnitude()
-            err_lat, err_long = (T_r2q_gt@T_q2r).magnitude_latlong()
+            # err_R, err_t = (T_r2q_gt@T_q2r).magnitude()
+            # err_lat, err_long = (T_r2q_gt@T_q2r).magnitude_latlong()
+            err_R, err_t = (T_q2r @ T_r2q_gt).magnitude()
+            err_lat, err_long = (T_q2r @ T_r2q_gt).magnitude_latlong()
             return err_R, err_t, err_lat, err_long
 
         metrics = {}
