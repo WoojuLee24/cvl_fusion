@@ -149,18 +149,21 @@ class TwoViewRefiner3D(BaseModel):
                 F_q = (F_q - F_q.mean(dim=2, keepdim=True)) / (F_q.std(dim=2, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
-            T_opt, failed = opt(dict(
-                p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
-                mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
 
 
-            # pose_estimator_input = dict(
-            #     p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
-            #     mask=mask, W_ref_q=W_ref_q, data=data, scale=i) # TODO
-            # pose_estimator_input = self.repeat_features(pose_estimator_input, repeat=self.conf.optimizer.multi_pose) # TODO
-            # T_opt, failed = opt(pose_estimator_input)
+            if self.conf.optimizer.multi_pose > 1:
+                B = F_q.size(0)
+                pose_estimator_input = dict(
+                    p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
+                    mask=mask, W_ref_q=W_ref_q, data=data, scale=i) # TODO
+                pose_estimator_input = self.repeat_features(pose_estimator_input, repeat=self.conf.optimizer.multi_pose) # TODO
+                T_opt, failed = opt(pose_estimator_input)
+                T_opt = Pose(T_opt._data[:B])  # TODO
+            else:
+                T_opt, failed = opt(dict(
+                    p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
+                    mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
 
-            # T_opt = Pose(T_opt._data[:2])  # TODO
 
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
@@ -202,10 +205,11 @@ class TwoViewRefiner3D(BaseModel):
                         v = v.repeat_interleave(repeat, dim=0)
                     new_value = new_value + (v,)
             elif isinstance(value, dict):
-                value['mean'] = value['mean'].repeat_interleave(repeat, dim=0).detach()
-                value['std'] = value['std'].repeat_interleave(repeat, dim=0).detach()
-                value['shift_range'] = value['shift_range'].repeat_interleave(repeat, dim=0).detach()
-                new_value = value
+                new_value = dict()
+                new_value['mean'] = value['mean'].repeat_interleave(repeat, dim=0).detach()
+                new_value['std'] = value['std'].repeat_interleave(repeat, dim=0).detach()
+                new_value['shift_range'] = value['shift_range'].repeat_interleave(repeat, dim=0).detach()
+                # new_value = value
             else:
                 new_value = value
             new_features[key] = new_value
