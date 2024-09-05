@@ -476,6 +476,7 @@ class TwoViewRefiner3D(BaseModel):
                 losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
                     max=self.conf.clamp_error / num_scales)
 
+
         losses['reprojection_error'] = err
         losses['reprojection_error/init'] = err_init
 
