@@ -183,11 +183,11 @@ class TwoViewRefiner3D(BaseModel):
                     T_init = T_opt.detach()     # default
 
             # query & reprojection GT error, for query unet back propogate  # PAB Loss
-            # if self.conf.optimizer.pose_loss: #pose_loss:
-            #     loss_gt = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref, mask=mask, W_ref_query=W_ref_q)
-            #     loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q)
-            #     diff_loss = torch.log(1 + torch.exp(10*(1- (loss_init + 1e-8) / (loss_gt + 1e-8))))
-            #     pred['pose_loss'].append(diff_loss)
+            if self.conf.optimizer.pose_loss: #pose_loss:
+                loss_gt = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref, mask=mask, W_ref_query=W_ref_q)
+                loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q)
+                diff_loss = torch.log(1 + torch.exp(10*(1- (loss_init + 1e-8) / (loss_gt + 1e-8))))
+                pred['pose_loss'].append(diff_loss)
 
         return pred
 
@@ -456,6 +456,8 @@ class TwoViewRefiner3D(BaseModel):
 
         num_scales = len(self.extractor.scales)
         losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] = 0
 
         if self.conf.optimizer.opt_list:
             pred['T_q2r_opt'] = list(itertools.chain(*pred['T_q2r_opt']))
@@ -466,6 +468,13 @@ class TwoViewRefiner3D(BaseModel):
             loss = err / num_scales
             losses[f'reprojection_error/{i}'] = err
             losses['total'] += loss
+
+            # query & reprojection GT error, for query unet back propogate
+            if self.conf.optimizer.pose_loss:
+                losses['pose_loss'] += pred['pose_loss'][i] / num_scales
+                poss_loss_weight = get_weight_from_reproloss(err_init)
+                losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
+                    max=self.conf.clamp_error / num_scales)
 
         losses['reprojection_error'] = err
         losses['reprojection_error/init'] = err_init
