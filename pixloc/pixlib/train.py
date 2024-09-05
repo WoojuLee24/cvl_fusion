@@ -113,7 +113,7 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
         wandb_logger.wandb.log({'val/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
         wandb_logger.wandb.log({'val/rot 1': torch.sum(errR <= 1) / errR.size(0)})
 
-        if 'topk_err' in pred.keys():
+        if isinstance(err_topk, torch.Tensor):
             wandb_logger.wandg.log({'val/T_1 err': err_topk[0] /  errlat.size(0)})
             wandb_logger.wandg.log({'val/T_topk err': err_topk[1] / errlat.size(0)})
             wandb_logger.wandg.log({'val/R_1 err': err_topk[2] / errlat.size(0)})
@@ -196,7 +196,7 @@ def test_basic(dataset, model, wandb_logger=None):
         wandb_logger.wandb.log({'test/var errR': torch.var(errR)})
         wandb_logger.wandb.log({'test/median errR': torch.median(errR)})
 
-        if 'topk_err' in pred.keys():
+        if isinstance(err_topk, torch.Tensor):
             wandb_logger.wandg.log({'val/T_1 err': err_topk[0] /  errlat.size(0)})
             wandb_logger.wandg.log({'val/T_topk err': err_topk[1] / errlat.size(0)})
             wandb_logger.wandg.log({'val/R_1 err': err_topk[2] / errlat.size(0)})
@@ -684,8 +684,8 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
             del pred, data, loss, losses
 
             results = 0
-            if (stop or it == (len(train_loader) - 1)):
-            # if it == 0:
+            # if (stop or it == (len(train_loader) - 1)):
+            if it == 0:
                 ################
                 ###VALIDATION###
                 ################
