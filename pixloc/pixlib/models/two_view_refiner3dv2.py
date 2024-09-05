@@ -121,8 +121,10 @@ class TwoViewRefiner3D(BaseModel):
 
             if self.conf.duplicate_optimizer_per_scale:
                 opt = self.optimizer[i]
+                opt.nnrefine.initialize_rsum()
             else:
                 opt = self.optimizer
+                opt.nnrefine.initialize_rsum()
 
             if self.conf.optimizer.attention:
                 F_q = pred['query']['feature_maps'][i] * pred['query']['confidences'][i]

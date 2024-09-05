@@ -896,7 +896,7 @@ class NNrefinev1_0(nn.Module):
                 r = torch.cat([self.args.kp * (query_feat - ref_feat)], dim=-1)
 
 
-        if integral:
+        if self.args.integral:
             self.r_sum[2-scale] += query_feat - ref_feat
             r = torch.cat([r, self.args.ki * self.r_sum[2-scale]], dim=-1)
 
