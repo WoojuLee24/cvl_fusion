@@ -521,6 +521,8 @@ class TwoViewRefiner3D(BaseModel):
 
         num_scales = len(self.extractor.scales)
         losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] = 0
 
         if self.conf.optimizer.opt_list:
             pred['T_q2r_opt'] = list(itertools.chain(*pred['T_q2r_opt']))
@@ -531,6 +533,13 @@ class TwoViewRefiner3D(BaseModel):
             loss = err / num_scales
             losses[f'reprojection_error/{i}'] = err
             losses['total'] += loss
+
+        # query & reprojection GT error, for query unet back propogate
+        if self.conf.optimizer.pose_loss:
+            losses['pose_loss'] += pred['pose_loss'][i] / num_scales
+            poss_loss_weight = get_weight_from_reproloss(err_init)
+            losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
+                max=self.conf.clamp_error / num_scales)
 
         losses['reprojection_error'] = err
         losses['reprojection_error/init'] = err_init
