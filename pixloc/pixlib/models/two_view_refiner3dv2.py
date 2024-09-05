@@ -110,7 +110,8 @@ class TwoViewRefiner3D(BaseModel):
         pred['T_q2r_opt'] = []
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
-
+        if self.conf.optimizer.multi_pose > 1:
+            pred['topk_err'] = 0
 
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
@@ -121,8 +122,10 @@ class TwoViewRefiner3D(BaseModel):
 
             if self.conf.duplicate_optimizer_per_scale:
                 opt = self.optimizer[i]
+                opt.nnrefine.initialize_rsum()   # for integral module
             else:
                 opt = self.optimizer
+                opt.nnrefine.initialize_rsum()   # for integral module
 
             if self.conf.optimizer.attention:
                 F_q = pred['query']['feature_maps'][i] * pred['query']['confidences'][i]
@@ -156,8 +159,16 @@ class TwoViewRefiner3D(BaseModel):
                 pose_estimator_input = dict(
                     p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
                     mask=mask, W_ref_q=W_ref_q, data=data, scale=i) # TODO
-                pose_estimator_input = self.repeat_features(pose_estimator_input, repeat=self.conf.optimizer.multi_pose) # TODO
+                pose_estimator_input = self.repeat_features(pose_estimator_input,
+                                                            repeat=self.conf.optimizer.multi_pose,
+                                                            pose=T_init) # TODO
                 T_opt, failed = opt(pose_estimator_input)
+                topk_err = self.get_topk_err(T_opt, data['T_q2r_gt'], opt.nnrefine.r,
+                                             repeat=self.conf.optimizer.multi_pose,
+                                             batch_size=B)
+
+                pred['topk_err'] += topk_err
+
                 T_opt = Pose(T_opt._data[:B])  # TODO
             else:
                 T_opt, failed = opt(dict(
@@ -181,21 +192,26 @@ class TwoViewRefiner3D(BaseModel):
                     T_init = T_opt.detach()     # default
 
             # query & reprojection GT error, for query unet back propogate  # PAB Loss
-            # if self.conf.optimizer.pose_loss: #pose_loss:
-            #     loss_gt = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref, mask=mask, W_ref_query=W_ref_q)
-            #     loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q)
-            #     diff_loss = torch.log(1 + torch.exp(10*(1- (loss_init + 1e-8) / (loss_gt + 1e-8))))
-            #     pred['pose_loss'].append(diff_loss)
+            if self.conf.optimizer.pose_loss: #pose_loss:
+                loss_gt = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref, mask=mask, W_ref_query=W_ref_q)
+                loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q)
+                diff_loss = torch.log(1 + torch.exp(10*(1- (loss_init + 1e-8) / (loss_gt + 1e-8))))
+                pred['pose_loss'].append(diff_loss)
 
         return pred
 
-    def repeat_features(self, features, repeat):
+    def repeat_features(self, features, repeat, pose):
         new_features = dict()
         for key, value in features.items():
             if isinstance(value, Camera):
                 new_value = Camera(value._data.repeat_interleave(repeat, dim=0))
             elif isinstance(value, Pose):
+                # ramdom shift translation and ratation on yaw
+                B = value._data.size(0)
+                R_yaw, T = self.get_noise(repeat, B)
+                shifts = Pose.from_Rt(R_yaw, T).cuda().detach()
                 new_value = Pose(value._data.repeat_interleave(repeat, dim=0))
+                new_value = shifts @ new_value
             elif isinstance(value, torch.Tensor):
                 new_value = value.repeat_interleave(repeat, dim=0)
             elif isinstance(value, tuple):
@@ -215,6 +231,57 @@ class TwoViewRefiner3D(BaseModel):
             new_features[key] = new_value
         return new_features
 
+    def get_noise(self, repeat, batch_size, mode='random'):
+        rot_range = 15
+        trans_range = 5
+
+        # yaw shift
+        YawShiftRange = rot_range * torch.pi / 180
+        if mode == 'random':
+            yaw = (2 * YawShiftRange * torch.rand(repeat) - YawShiftRange)
+
+        yaw[0] = 0
+        cos_yaw = torch.cos(yaw)
+        sin_yaw = torch.sin(yaw)
+
+        R_yaw = torch.zeros((repeat, 3, 3))
+        R_yaw[:, 0, 0] = cos_yaw
+        R_yaw[:, 0, 1] = -sin_yaw
+        R_yaw[:, 1, 0] = sin_yaw
+        R_yaw[:, 1, 1] = cos_yaw
+        R_yaw[:, 2, 2] = 1
+        R_yaw = R_yaw.repeat((batch_size, 1, 1))
+
+        # t shift
+        TShiftRange = trans_range
+        if mode == 'random':
+            T = 2 * TShiftRange * torch.rand(repeat, 3) - TShiftRange
+        T[0, :] = 0
+        T[:, 2] = 0
+        T = T.repeat((batch_size, 1))
+
+        return R_yaw, T
+
+    def get_topk_err(self, T_q2r, T_q2r_gt, F_residual, batch_size, repeat, topk=3):
+        with torch.no_grad():
+            residual_sum = torch.abs(F_residual.sum(dim=1).sum(dim=1))
+            residual_sum = residual_sum.reshape(batch_size, -1)
+            _, ind = torch.topk(residual_sum, topk, dim=1, largest=False)
+            T_r2q_gt = T_q2r_gt.inv()
+            T_r2q_gt = Pose(T_r2q_gt._data.repeat_interleave(repeat, dim=0))
+
+            err_R, err_t = (T_q2r @ T_r2q_gt).magnitude()
+            # err_lat, err_long = (T_q2r @ T_r2q_gt).magnitude_latlong()
+            _, ind_R = torch.topk(err_R.reshape(batch_size, -1), topk, dim=1, largest=False)
+            _, ind_T = torch.topk(err_t.reshape(batch_size, -1), topk, dim=1, largest=False)
+
+            T_1_err = (ind[0, 0] == ind_T[0, 0]).float().sum() / 3
+            T_topk_err = torch.isin(ind[0], ind_T[0]).float().sum() / topk / 3
+            R_1_err = (ind[0, 0] == ind_R[0, 0]).float().sum() / batch_size / 3
+            R_topk_err = torch.isin(ind[0], ind_R[0]).float().sum() / topk / 3
+
+            err = torch.tensor([T_1_err, T_topk_err, R_1_err, R_topk_err]).cuda()
+        return err
 
     def preject_l1loss(self, opt, p3D, F_ref, F_query, T_gt, camera, mask=None, W_ref_query= None):
         args = (camera, p3D, F_ref, F_query, W_ref_query)

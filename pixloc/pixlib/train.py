@@ -61,6 +61,8 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     errR = torch.tensor([])
     errlong = torch.tensor([])
     errlat = torch.tensor([])
+    err_topk = 0
+
     for data in tqdm(loader, desc='Evaluation', ascii=True, disable=not pbar):
         data = batch_to_device(data, device, non_blocking=True)
         with torch.no_grad():
@@ -71,6 +73,8 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
             errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
             errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
             errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
+            if 'topk_err' in pred.keys():
+                err_topk += pred['topk_err'].cpu().data
 
             del pred, data
         numbers = {**metrics, **{'loss/'+k: v for k, v in losses.items()}}
@@ -109,6 +113,12 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
         wandb_logger.wandb.log({'val/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
         wandb_logger.wandb.log({'val/rot 1': torch.sum(errR <= 1) / errR.size(0)})
 
+        if 'topk_err' in pred.keys():
+            wandb_logger.wandg.log({'val/T_1 err': err_topk[0] /  errlat.size(0)})
+            wandb_logger.wandg.log({'val/T_topk err': err_topk[1] / errlat.size(0)})
+            wandb_logger.wandg.log({'val/R_1 err': err_topk[2] / errlat.size(0)})
+            wandb_logger.wandg.log({'val/R_topk err': err_topk[3] / errlat.size(0)})
+
     return results
 
 
@@ -120,6 +130,8 @@ def test_basic(dataset, model, wandb_logger=None):
     errR = torch.tensor([])
     errlong = torch.tensor([])
     errlat = torch.tensor([])
+    err_topk = 0
+
     for idx, data in enumerate(tqdm(test_loader)):
         data_ = batch_to_device(data, device='cuda')
         # logger.set(data_)
@@ -129,6 +141,8 @@ def test_basic(dataset, model, wandb_logger=None):
         errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
         errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
         errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
+        if 'topk_err' in pred.keys():
+            err_topk += pred['topk_err'].cpu().data
 
         del pred_, data_
 
@@ -181,6 +195,13 @@ def test_basic(dataset, model, wandb_logger=None):
         wandb_logger.wandb.log({'test/mean errR': torch.mean(errR)})
         wandb_logger.wandb.log({'test/var errR': torch.var(errR)})
         wandb_logger.wandb.log({'test/median errR': torch.median(errR)})
+
+        if 'topk_err' in pred.keys():
+            wandb_logger.wandg.log({'val/T_1 err': err_topk[0] /  errlat.size(0)})
+            wandb_logger.wandg.log({'val/T_topk err': err_topk[1] / errlat.size(0)})
+            wandb_logger.wandg.log({'val/R_1 err': err_topk[2] / errlat.size(0)})
+            wandb_logger.wandg.log({'val/R_topk err': err_topk[3] / errlat.size(0)})
+
 
     return
 
@@ -579,6 +600,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         errR = torch.tensor([])
         errlong = torch.tensor([])
         errlat = torch.tensor([])
+        err_topk = 0
 
         for it, data in enumerate(train_loader):
             tot_it = len(train_loader)*epoch + it
@@ -594,6 +616,8 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                 errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
                 errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
                 errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
+                if 'topk_err' in pred.keys():
+                    err_topk += pred['topk_err'].cpu().data
 
             #tick = time.time()
             do_backward = loss.requires_grad
@@ -644,6 +668,12 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                         wandb_logger.wandb.log({'training/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
                         wandb_logger.wandb.log({'training/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
                         wandb_logger.wandb.log({'training/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+                        if 'topk_err' in pred.keys():
+                            wandb_logger.wandg.log({'training/T_1 err': err_topk[0] / (it+1)})
+                            wandb_logger.wandg.log({'training/T_topk err': err_topk[1] / (it+1)})
+                            wandb_logger.wandg.log({'training/R_1 err': err_topk[2] / (it+1)})
+                            wandb_logger.wandg.log({'training/R_topk err': err_topk[3] / (it+1)})
+
 
                     else:
                         for k, v in losses.items():
@@ -655,6 +685,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
 
             results = 0
             if (stop or it == (len(train_loader) - 1)):
+            # if it == 0:
                 ################
                 ###VALIDATION###
                 ################
