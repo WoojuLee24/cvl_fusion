@@ -105,9 +105,27 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     logger.info(f'median errR:{torch.median(errR)},errlat:{torch.median(errlat)},errlong:{torch.median(errlong)}')
 
     if wandb_logger != None:
+        wandb_logger.wandb.log({'val/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
+        wandb_logger.wandb.log({'val/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
         wandb_logger.wandb.log({'val/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
+        wandb_logger.wandb.log({'val/mean errlat': torch.mean(errlat)})
+        wandb_logger.wandb.log({'val/var errlat': torch.var(errlat)})
+        wandb_logger.wandb.log({'val/median errlat': torch.median(errlat)})
+
+        wandb_logger.wandb.log({'val/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
+        wandb_logger.wandb.log({'val/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
         wandb_logger.wandb.log({'val/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
+        wandb_logger.wandb.log({'val/mean errlon': torch.mean(errlong)})
+        wandb_logger.wandb.log({'val/var errlon': torch.var(errlong)})
+        wandb_logger.wandb.log({'val/median errlon': torch.median(errlong)})
+
         wandb_logger.wandb.log({'val/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+        wandb_logger.wandb.log({'val/rot 2': torch.sum(errR <= 2) / errR.size(0)})
+        wandb_logger.wandb.log({'val/rot 4': torch.sum(errR <= 4) / errR.size(0)})
+        wandb_logger.wandb.log({'val/mean errR': torch.mean(errR)})
+        wandb_logger.wandb.log({'val/var errR': torch.var(errR)})
+        wandb_logger.wandb.log({'val/median errR': torch.median(errR)})
+
 
     return results
 
@@ -640,10 +658,27 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                         for k, v in losses.items():
                             k = 'training/' + k
                             wandb_logger.wandb.log({k: v})
-                        wandb_logger.wandb.log({'training/lr': optimizer.param_groups[0]['lr']})
+                        wandb_logger.wandb.log({'training/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
+                        wandb_logger.wandb.log({'training/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
                         wandb_logger.wandb.log({'training/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
+                        wandb_logger.wandb.log({'training/mean errlat': torch.mean(errlat)})
+                        wandb_logger.wandb.log({'training/var errlat': torch.var(errlat)})
+                        wandb_logger.wandb.log({'training/median errlat': torch.median(errlat)})
+
+                        wandb_logger.wandb.log({'training/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
+                        wandb_logger.wandb.log({'training/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
                         wandb_logger.wandb.log({'training/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
+                        wandb_logger.wandb.log({'training/mean errlon': torch.mean(errlong)})
+                        wandb_logger.wandb.log({'training/var errlon': torch.var(errlong)})
+                        wandb_logger.wandb.log({'training/median errlon': torch.median(errlong)})
+
                         wandb_logger.wandb.log({'training/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+                        wandb_logger.wandb.log({'training/rot 2': torch.sum(errR <= 2) / errR.size(0)})
+                        wandb_logger.wandb.log({'training/rot 4': torch.sum(errR <= 4) / errR.size(0)})
+                        wandb_logger.wandb.log({'training/mean errR': torch.mean(errR)})
+                        wandb_logger.wandb.log({'training/var errR': torch.var(errR)})
+                        wandb_logger.wandb.log({'training/median errR': torch.median(errR)})
+
 
                     else:
                         for k, v in losses.items():
