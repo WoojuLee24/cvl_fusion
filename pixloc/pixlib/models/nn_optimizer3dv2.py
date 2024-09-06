@@ -12,6 +12,7 @@ from ..geometry import losses  # noqa
 from .pointnet import PointNetEncoder, PointNetEncoder1_1
 from .pointnet2 import PointNetEncoder2
 from .pointnet2_1 import PointNetEncoder2_1
+from pixloc.pixlib.models.mlp_mixer import MLPMixer
 
 logger = logging.getLogger(__name__)
 
@@ -843,8 +844,8 @@ class NNrefinev1_0(nn.Module):
                                       hidden_c=256,
                                       drop_p=0, off_act=False)
 
-            self.pooling = nn.Sequential(nn.LayerNorm(self.args.topk),
-                                         nn.Linear(self.args.topk, 256),
+            self.pooling = nn.Sequential(nn.LayerNorm(self.args.max_num_points3D),
+                                         nn.Linear(self.args.max_num_points3D, 256),
                                          nn.GELU(),
                                          nn.LayerNorm(256),
                                          nn.Linear(256, 64),
