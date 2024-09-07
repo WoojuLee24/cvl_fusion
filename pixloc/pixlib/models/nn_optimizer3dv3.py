@@ -1035,6 +1035,8 @@ class NNrefinev1_1(nn.Module):
             self.cout = self.cout + self.dim
         if self.args.jacobian:
             self.cout = self.cout + self.dim*3
+            if self.args.net == 'tp2':
+                self.cout = self.cout + self.dim*9
 
         if self.args.pose_from == 'aa':
             self.yout = 6
@@ -1190,6 +1192,23 @@ class NNrefinev1_1(nn.Module):
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
 
+        elif self.args.net in ['tp1', 'tp2']:
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(num_points, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
 
 
     def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale, J=None, integral=False):
@@ -1236,11 +1255,22 @@ class NNrefinev1_1(nn.Module):
         if self.args.jacobian:
             J = J.view(B, N, -1)
             J = self.j_linear[2 - scale](J)
-            J = self.j_sa(J) if self.args.net in ['tf1'] else J # J^t@J
-            J = self.j_ca(J, res) if self.args.net in ['tf1'] else J
-            r = torch.cat([r, self.args.kd * J], dim=-1)
+            if self.args.net == 'tf1':
+                J = self.j_sa(J)    # J^t@J
+                J = self.j_ca(J, res)
+            elif self.args.net == 'tp1':
+                J = J.reshape(B, N, -1, 3)
+                J = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+                J = J.reshape(B, N, -1).contiguous()
+            elif self.args.net == 'tp2':
+                J = J.reshape(B, N, -1, 3)
+                Hess = torch.einsum('...ni,...nj->...nij', J, J)
+                Hess = Hess.reshape(B, N, -1).contiguous()
+                J = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+                J = J.reshape(B, N, -1).contiguous()
+                J = torch.cat([J, Hess], dim=-1)
 
-        x = r
+            r = torch.cat([r, self.args.kd * J], dim=-1)
 
         if self.args.net in ['mlp', 'mlp2', 'mlp2.1', 'mlp2.2']:
             x = r.contiguous().permute(0, 2, 1).contiguous()
@@ -1253,7 +1283,7 @@ class NNrefinev1_1(nn.Module):
             x = self.pooling(x)
             x = x.view(B, -1)
             y = self.mapping(x)  # [B, 3]
-        elif self.args.net in ['tf1']:
+        elif self.args.net in ['tf1', 'tp1', 'tp2']:
             x = r.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
