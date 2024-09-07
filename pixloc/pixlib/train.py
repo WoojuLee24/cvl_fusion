@@ -141,8 +141,8 @@ def test_basic(dataset, model, wandb_logger=None):
         errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
         errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
         errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
-        if 'topk_err' in pred.keys():
-            err_topk += pred['topk_err'].cpu().data
+        if 'topk_err' in pred_.keys():
+            err_topk += pred_['topk_err'].cpu().data
 
         del pred_, data_
 
