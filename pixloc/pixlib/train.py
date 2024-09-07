@@ -574,7 +574,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: ((1.0 - float(epoch) / total_epoch)**1.0))
 
     if args.restore:
-        #optimizer.load_state_dict(init_cp['optimizer']) # delte because para not same after add satellite feature extractor
+        optimizer.load_state_dict(init_cp['optimizer']) # delte because para not same after add satellite feature extractor
         if 'lr_scheduler' in init_cp:
             lr_scheduler.load_state_dict(init_cp['lr_scheduler'])
 
