@@ -984,6 +984,8 @@ class NNrefinev1_1(nn.Module):
             self.cout = self.cout + self.dim
         if self.args.jacobian:
             self.cout = self.cout + self.dim*3
+            if self.args.net == 'tp2':
+                self.cout = self.cout + self.dim*9
 
         if self.args.pose_from == 'aa':
             self.yout = 6
@@ -992,7 +994,7 @@ class NNrefinev1_1(nn.Module):
 
 
         # if self.args.pool == 'none':
-        if self.args.net == 'mlp':
+        if self.args.net in ['mlp', 'tp1', 'tp2']:
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
                                          nn.Linear(self.args.max_num_points3D, 256),
                                          nn.ReLU(inplace=False),
@@ -1140,16 +1142,16 @@ class NNrefinev1_1(nn.Module):
 
         B, N, C = query_feat.size()
 
-        query_feat = self.linear[2-scale](query_feat)
-        ref_feat = self.linear[2-scale](ref_feat)
+        # query_feat = self.linear[2-scale](query_feat)
+        # ref_feat = self.linear[2-scale](ref_feat) # edited
 
         p3D_query_feat = self.linearp(p3D_query.contiguous())
         p3D_ref_feat = self.linearp(p3D_ref.contiguous())
 
         # normalization
         if self.args.normalize_geometry_feature == 'l2':
-            query_feat = torch.nn.functional.normalize(query_feat, dim=-1)
-            ref_feat = torch.nn.functional.normalize(ref_feat, dim=-1)
+            # query_feat = torch.nn.functional.normalize(query_feat, dim=-1)
+            # ref_feat = torch.nn.functional.normalize(ref_feat, dim=-1)
             p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
             p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
 
@@ -1178,15 +1180,31 @@ class NNrefinev1_1(nn.Module):
             r = torch.cat([r, self.args.ki * self.r_sum[2-scale]], dim=-1)
 
         if self.args.jacobian:
-            J = J.view(B, N, -1)
-            J = self.j_linear[2 - scale](J)
-            J = self.j_sa(J) if self.args.net in ['tf1'] else J # J^t@J
-            J = self.j_ca(J, res) if self.args.net in ['tf1'] else J
+            # J = J.view(B, N, -1)
+            # J = self.j_linear[2 - scale](J)
+            # J = self.j_sa(J) if self.args.net in ['tf1'] else J # J^t@J
+            # J = self.j_ca(J, res) if self.args.net in ['tf1'] else J
+            # r = torch.cat([r, self.args.kd * J], dim=-1)
+
+            if self.args.net == 'tf1':
+                J = J.view(B, N, -1)
+                J = self.j_sa(J)  # J^t@J
+                J = self.j_ca(J, res)
+            elif self.args.net == 'tp1':
+                J = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+                J = J.reshape(B, N, -1).contiguous()
+            elif self.args.net == 'tp2':
+                Hess = torch.einsum('...ni,...nj->...nij', J, J)
+                Hess = Hess.reshape(B, N, -1).contiguous()
+                J = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+                J = J.reshape(B, N, -1).contiguous()
+                J = torch.cat([J, Hess], dim=-1)
+            else:
+                J = J.reshape(B, N, -1).contiguous()
+
             r = torch.cat([r, self.args.kd * J], dim=-1)
 
-        x = r
-
-        if self.args.net in ['mlp', 'mlp2', 'mlp2.1', 'mlp2.2']:
+        if self.args.net in ['mlp', 'mlp2', 'mlp2.1', 'mlp2.2', 'tp1', 'tp2']:
             x = r.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
