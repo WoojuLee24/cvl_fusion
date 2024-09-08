@@ -69,6 +69,7 @@ class NNOptimizer3D(BaseOptimizer):
         kd=1.,
         ki=1.,
         multi_pose=1,
+        topk=1,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,

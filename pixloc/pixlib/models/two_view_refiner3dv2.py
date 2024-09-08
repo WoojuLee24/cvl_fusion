@@ -57,6 +57,7 @@ class TwoViewRefiner3D(BaseModel):
             'opt_list': False,
             'jacobian': False,
             'multi_pose': 1,
+            'topk': 1,
         },
         'duplicate_optimizer_per_scale': False,
         'success_thresh': 3,
@@ -152,8 +153,6 @@ class TwoViewRefiner3D(BaseModel):
                 F_q = (F_q - F_q.mean(dim=2, keepdim=True)) / (F_q.std(dim=2, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
-
-
             if self.conf.optimizer.multi_pose > 1:
                 B = F_q.size(0)
                 pose_estimator_input = dict(
@@ -161,15 +160,16 @@ class TwoViewRefiner3D(BaseModel):
                     mask=mask, W_ref_q=W_ref_q, data=data, scale=i) # TODO
                 pose_estimator_input = self.repeat_features(pose_estimator_input,
                                                             repeat=self.conf.optimizer.multi_pose,
-                                                            pose=T_init) # TODO
+                                                            pose=T_init,
+                                                            scale=i) # TODO
                 T_opt, failed = opt(pose_estimator_input)
-                topk_err = self.get_topk_err(T_opt, data['T_q2r_gt'], opt.nnrefine.r,
+                T_opt, topk_err = self.get_topk_err(T_opt, data['T_q2r_gt'], opt.nnrefine.r,
                                              repeat=self.conf.optimizer.multi_pose,
                                              batch_size=B)
 
                 pred['topk_err'] += topk_err
 
-                T_opt = Pose(T_opt._data[:B])  # TODO
+                # T_opt = Pose(T_opt._data[:B])  # TODO
             else:
                 T_opt, failed = opt(dict(
                     p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
@@ -200,17 +200,19 @@ class TwoViewRefiner3D(BaseModel):
 
         return pred
 
-    def repeat_features(self, features, repeat, pose):
+    def repeat_features(self, features, repeat, pose, scale):
         new_features = dict()
+        B = features['p3D'].size(0)
+        assert B==1, "only batch size 1 is tested"
         for key, value in features.items():
             if isinstance(value, Camera):
                 new_value = Camera(value._data.repeat_interleave(repeat, dim=0))
             elif isinstance(value, Pose):
                 # ramdom shift translation and ratation on yaw
-                B = value._data.size(0)
-                R_yaw, T = self.get_noise(repeat, B)
+                batch_pose_size = value._data.size(0) // B
+                R_yaw, T = self.get_noise(repeat, B, mode='random', scale=scale)
                 shifts = Pose.from_Rt(R_yaw, T).cuda().detach()
-                new_value = Pose(value._data.repeat_interleave(repeat, dim=0))
+                new_value = Pose(value._data.repeat_interleave(repeat // batch_pose_size, dim=0))
                 new_value = shifts @ new_value
             elif isinstance(value, torch.Tensor):
                 new_value = value.repeat_interleave(repeat, dim=0)
@@ -231,9 +233,10 @@ class TwoViewRefiner3D(BaseModel):
             new_features[key] = new_value
         return new_features
 
-    def get_noise(self, repeat, batch_size, mode='random'):
-        rot_range = 15
-        trans_range = 5
+    def get_noise(self, repeat, batch_size, mode='random', scale=2):
+
+        rot_range = 0 # 15 / 2 / (3-scale)
+        trans_range = 5 / 2
 
         # yaw shift
         YawShiftRange = rot_range * torch.pi / 180
@@ -281,7 +284,7 @@ class TwoViewRefiner3D(BaseModel):
             R_topk_err = torch.isin(ind[0], ind_R[0]).float().sum() / topk / 3
 
             err = torch.tensor([T_1_err, T_topk_err, R_1_err, R_topk_err]).cuda()
-        return err
+        return T_q2r[ind[0]], err
 
     def preject_l1loss(self, opt, p3D, F_ref, F_query, T_gt, camera, mask=None, W_ref_query= None):
         args = (camera, p3D, F_ref, F_query, W_ref_query)

@@ -133,6 +133,8 @@ def test_basic(dataset, model, wandb_logger=None):
     err_topk = 0
 
     for idx, data in enumerate(tqdm(test_loader)):
+        # if idx == 100:
+        #     break
         data_ = batch_to_device(data, device='cuda')
         # logger.set(data_)
         pred_ = model(data_)
