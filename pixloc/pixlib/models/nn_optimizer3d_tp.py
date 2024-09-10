@@ -138,7 +138,7 @@ class NNOptimizer3D(BaseOptimizer):
                 valid &= mask
             failed = failed | (valid.long().sum(-1) < 10)  # too few points
 
-            delta = - self.nnrefine(res, F_query, F_ref2D, p3D, p3D_ref, J, w_unc, valid, scale, lambda_)
+            delta = self.nnrefine(res, F_query, F_ref2D, p3D, p3D_ref, J, w_unc, valid, scale, lambda_)
 
             if self.conf.pose_from == 'aa':
                 # compute the pose update
@@ -259,12 +259,42 @@ class NNrefinev1_0(nn.Module):
                                          nn.Tanh())
         elif self.args.net == 'jmlp':
             self.cout = self.cin[0] * 3
+            hidden_dim = 512
             self.jmlp = nn.Sequential(nn.ReLU(inplace=False),
-                                      nn.Linear(self.cout, 128),
+                                      nn.Linear(self.cout, hidden_dim),
                                       nn.ReLU(inplace=False),
-                                      nn.Linear(128, 32),
+                                      nn.Linear(hidden_dim, hidden_dim),
                                       nn.ReLU(inplace=False),
-                                      nn.Linear(32, self.yout))
+                                      nn.Linear(hidden_dim, self.cout))
+
+        elif self.args.net == 'jmlp2':
+            jin = self.cin[0] * 3
+            hidden_dim = 512
+
+            self.jmlp = nn.Sequential(nn.ReLU(inplace=False),
+                                      nn.Linear(jin, hidden_dim),
+                                      nn.ReLU(inplace=False),
+                                      nn.Linear(hidden_dim, hidden_dim),
+                                      nn.ReLU(inplace=False),
+                                      nn.Linear(hidden_dim, jin))
+
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout = self.cin[0] * 3 * 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
 
         elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
             self.mlp_mixer = MLPMixer(self.args.net,
@@ -347,18 +377,30 @@ class NNrefinev1_0(nn.Module):
 
         if self.args.net == 'gd':
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            y = lambda_ * Jtr.sum(dim=(1, 2))
+            y = - lambda_ * Jtr.sum(dim=(1, 2))
         elif self.args.net == 'mlp':
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
             Jtr = Jtr.view(B, N, -1)
             x = Jtr.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
-            y = self.mapping(x)
+            y = - self.mapping(x)
         elif self.args.net == 'jmlp':
+            J = J.view(B, N, -1)
             J = self.jmlp(J) + J
+            J = J.view(B, N, -1, 3)
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            y = lambda_ * Jtr.sum(dim=(1, 2))
+            y = - Jtr.sum(dim=(1, 2))
+        elif self.args.net == 'jmlp2':
+            J = J.view(B, N, -1)
+            J = self.jmlp(J) + J
+            J = J.view(B, N, -1, 3)
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = Jtr.view(B, N, -1)
+            x = Jtr.contiguous().permute(0, 2, 1).contiguous()
+            x = self.pooling(x)
+            x = x.view(B, -1)
+            y = - self.mapping(x)
 
         # B, N, C = r.shape
         # if 2-scale == 0:
