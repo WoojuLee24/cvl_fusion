@@ -752,7 +752,7 @@ class NNrefinev1_0(nn.Module):
                                      nn.Linear(self.cin[2], self.cout))
 
         # if self.args.pool == 'none':
-        if self.args.net == 'mlp':
+        if self.args.net == 'mlp':  # default
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
                                          nn.Linear(self.args.max_num_points3D, 256),
                                          nn.ReLU(inplace=False),
@@ -768,6 +768,16 @@ class NNrefinev1_0(nn.Module):
                                          nn.Linear(128, 32),
                                          nn.ReLU(inplace=False),
                                          nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net == 'mlp1':
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 16),
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, self.yout),
                                          nn.Tanh())
 
         elif self.args.net == 'mlp2':
@@ -911,7 +921,7 @@ class NNrefinev1_0(nn.Module):
         elif 2-scale == 2:
             x = self.linear2(r)
 
-        if self.args.net in ['mlp', 'mlp2', 'mlp2.1', 'mlp2.2']:
+        if self.args.net in ['mlp', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
