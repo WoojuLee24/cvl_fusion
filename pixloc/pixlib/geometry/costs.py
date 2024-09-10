@@ -184,3 +184,50 @@ class DirectAbsoluteCost:
             T_q2r, camera, p3D, F_ref, F_query, confidences, True)
         J, _ = self.jacobian2(T_q2r, camera, *info)
         return res, valid, weight, F_p2D, J
+
+    def residual_jacobian3(
+            self, T_q2r: Pose, camera: Camera, p3D: Tensor,
+            F_ref: Tensor, F_query: Tensor,
+            confidences: Optional[Tuple[Tensor, Tensor]] = None):
+
+        p3D_r = T_q2r * p3D  # q_3d to q2r_3d
+        p2D, visible = camera.world2image(p3D_r)  # q2r_3d to q2r_2d
+        F_p2D_raw, valid, gradients = self.interpolator(
+            F_ref, p2D, return_gradients=True)  # get g2r 2d features
+        valid = valid & visible
+
+        C_ref, C_query, C_count = confidences
+
+        C_ref_p2D, _, _ = self.interpolator(C_ref, p2D, return_gradients=False)  # get ref 2d confidence
+
+        # the first confidence
+        weight = C_ref_p2D[:, :, 0] * C_query[:, :, 0]
+        if C_count > 1:
+            grd_weight = C_ref_p2D[:, :, 1].detach() * C_query[:, :, 1]
+            weight = weight * grd_weight
+
+        if weight != None:
+            weight = weight.masked_fill(~(valid), 0.)
+            # weight = torch.nn.functional.normalize(weight, p=float('inf'), dim=1) #??
+
+        if self.normalize:  # huge memory
+            F_p2D = torch.nn.functional.normalize(F_p2D_raw, dim=-1)
+        else:
+            F_p2D = F_p2D_raw
+
+        res = F_p2D - F_query
+        J_f_p2D = gradients
+        # info = (p3D_r, F_p2D, gradients)
+        # p3D_r: Tensor, F_p2D_raw: Tensor, J_f_p2D: Tensor
+
+        # J, _ = self.jacobian2(T_q2r, camera, *info)
+        J_p3D_T = T_q2r.J_transform2(p3D_r)
+        J_p2D_p3D, _ = camera.J_world2image(p3D_r)
+
+        if self.normalize:
+            J_f_p2D = J_normalization(F_p2D) @ J_f_p2D
+
+        J_p2D_T = J_p2D_p3D @ J_p3D_T
+        J = J_f_p2D @ J_p2D_T
+
+        return res, valid, weight, p3D_r, F_p2D, J
