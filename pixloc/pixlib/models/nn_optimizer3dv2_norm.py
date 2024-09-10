@@ -115,17 +115,17 @@ class NNOptimizer3D(BaseOptimizer):
         # shiftxyr = torch.zeros_like(shift_range)
         T_opt_list = []
 
+        if self.conf.normalize_geometry == 'zsn':
+            p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
+        elif self.conf.normalize_geometry == 'l2':
+            p3D = torch.nn.functional.normalize(p3D, dim=-1)
+        elif self.conf.normalize_geometry == 'zsn2':
+            mean = data['data']['mean']
+            std = data['data']['std']
+            p3D = (p3D - mean) / (std + 1e-6)
+
         for i in range(self.conf.num_iters):
             res, valid, w_unc, F_ref2D, J = self.cost_fn.residual_jacobian2(T, *args)
-
-            if self.conf.normalize_geometry == 'zsn':
-                p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
-            elif self.conf.normalize_geometry == 'l2':
-                p3D = torch.nn.functional.normalize(p3D, dim=-1)
-            elif self.conf.normalize_geometry == 'zsn2':
-                mean = data['data']['mean']
-                std = data['data']['std']
-                p3D = (p3D - mean) / (std + 1e-6)
 
             p3D_ref = T * p3D
 
