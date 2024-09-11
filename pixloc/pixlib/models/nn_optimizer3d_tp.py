@@ -257,6 +257,23 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
+        elif self.args.net == 'pmlp':
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout = self.cin[0] * 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
         elif self.args.net == 'jmlp':
             self.cout = self.cin[0] * 3
             hidden_dim = 512
@@ -326,18 +343,39 @@ class NNrefinev1_0(nn.Module):
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
         elif args.net in ['tf1']:
-            self.j_sa = Transformer(dim=self.dim * 3,
+            cin = self.cin[0]
+            jin = self.cin[0] * 3
+            hidden_dim = jin * 2
+            self.j_sa = Transformer(dim=jin,
                                     depth=1,
                                     heads=8,
-                                    dim_head=self.dim // 8,
-                                    mlp_dim=self.dim * 3)
+                                    dim_head=hidden_dim // 8,
+                                    mlp_dim=jin)
 
-            self.j_ca = CrossTransformer(dim1=self.dim * 3,
-                                         dim2=self.dim,
+            self.j_ca = CrossTransformer(dim1=jin,
+                                         dim2=cin,
                                          depth=1,
                                          heads=8,
-                                         dim_head=self.dim // 8,
-                                         mlp_dim=self.dim * 3)
+                                         dim_head=hidden_dim // 8,
+                                         mlp_dim=jin)
+
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout = jin * 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
 
     def forward(self, res, query_feat, ref_feat, p3D_query, p3D_ref, J, w_unc, valid, scale, lambda_, integral=False):
 
@@ -385,6 +423,13 @@ class NNrefinev1_0(nn.Module):
             x = self.pooling(x)
             x = x.view(B, -1)
             y = - self.mapping(x)
+        elif self.args.net == 'pmlp':
+            # Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            # Jtr = Jtr.view(B, N, -1)
+            x = res.contiguous().permute(0, 2, 1).contiguous()
+            x = self.pooling(x)
+            x = x.view(B, -1)
+            y = - self.mapping(x)
         elif self.args.net == 'jmlp':
             J = J.view(B, N, -1)
             J = self.jmlp(J) + J
@@ -394,6 +439,24 @@ class NNrefinev1_0(nn.Module):
         elif self.args.net == 'jmlp2':
             J = J.view(B, N, -1)
             J = self.jmlp(J) + J
+            J = J.view(B, N, -1, 3)
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = Jtr.view(B, N, -1)
+            x = Jtr.contiguous().permute(0, 2, 1).contiguous()
+            x = self.pooling(x)
+            x = x.view(B, -1)
+            y = - self.mapping(x)
+        elif self.args.net == 'tf1':
+            J = J.view(B, N, -1)
+            J = self.j_sa(J)  # J^t@J
+            J = self.j_ca(J, res)
+            J = J.view(B, N, -1, 3)
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            y = - Jtr.sum(dim=(1, 2))
+        elif self.args.net == 'tf2':
+            J = J.view(B, N, -1)
+            J = self.j_sa(J)  # J^t@J
+            J = self.j_ca(J, res)
             J = J.view(B, N, -1, 3)
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
             Jtr = Jtr.view(B, N, -1)
