@@ -197,6 +197,7 @@ class NNrefinev1_0(nn.Module):
         self.p3d_std = torch.tensor([[[9.1397,  0.0000, 10.4613]]], dtype=torch.float32).cuda()
 
         self.cin = self.args.input_dim  # [128, 128, 32]
+        self.jin = 3 if self.args.pose_from=='rt' else 6
         # self.cout = self.cin[0] * 3
         pointc = self.cin[2]
         self.initialize_rsum()
@@ -276,8 +277,8 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
-        elif self.args.net == 'jmlp':
-            self.cout = self.cin[0] * 3
+        elif self.args.net in ['jmlp', 'lm_jmlp']:
+            self.cout = self.cin[0] * self.jin
             hidden_dim = 512
             self.jmlp = nn.Sequential(nn.ReLU(inplace=False),
                                       nn.Linear(self.cout, hidden_dim),
@@ -286,8 +287,8 @@ class NNrefinev1_0(nn.Module):
                                       nn.ReLU(inplace=False),
                                       nn.Linear(hidden_dim, self.cout))
 
-        elif self.args.net == 'jmlp2':
-            jin = self.cin[0] * 3
+        elif self.args.net in ['jmlp2', 'lm_jmlp2']:
+            jin = self.cin[0] * self.jin
             hidden_dim = 512
 
             self.jmlp = nn.Sequential(nn.ReLU(inplace=False),
@@ -304,7 +305,7 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(64, 16)
                                          )
-            self.cout = self.cin[0] * 3 * 16
+            self.cout = self.cin[0] * self.jin  * 16
 
             self.mapping = nn.Sequential(nn.ReLU(inplace=False),
                                          nn.Linear(self.cout, 128),
@@ -430,6 +431,30 @@ class NNrefinev1_0(nn.Module):
 
             y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
 
+        elif self.args.net == 'lm-l':
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = w_unc[..., None] * Jtr
+            Jtr = Jtr.sum(dim=(1, 2))
+
+            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
+            Hess = w_unc[..., None] * Hess
+            Hess = Hess.sum(-3)  # ... x 6 x6
+
+            lambda_fake = torch.ones_like(lambda_)
+
+            y = optimizer_step(Jtr, Hess, lambda_fake, mask=~failed)
+
+        elif self.args.net == 'lm-lw':
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = Jtr.sum(dim=(1, 2))
+
+            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
+            Hess = Hess.sum(-3)  # ... x 6 x6
+
+            lambda_fake = torch.ones_like(lambda_)
+
+            y = optimizer_step(Jtr, Hess, lambda_fake, mask=~failed)
+
         elif self.args.net == 'mlp':
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
             Jtr = Jtr.view(B, N, -1)
@@ -447,19 +472,49 @@ class NNrefinev1_0(nn.Module):
         elif self.args.net == 'jmlp':
             J = J.view(B, N, -1)
             J = self.jmlp(J) + J
-            J = J.view(B, N, -1, 3)
+            J = J.view(B, N, -1, self.jin)
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
             y = - Jtr.sum(dim=(1, 2))
         elif self.args.net == 'jmlp2':
             J = J.view(B, N, -1)
             J = self.jmlp(J) + J
-            J = J.view(B, N, -1, 3)
+            J = J.view(B, N, -1, self.jin)
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
             Jtr = Jtr.view(B, N, -1)
             x = Jtr.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
             y = - self.mapping(x)
+        elif self.args.net == 'lm_jmlp':
+            J = J.view(B, N, -1)
+            J = self.jmlp(J) + J    # added
+            J = J.view(B, N, -1, self.jin)
+
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = w_unc[..., None] * Jtr
+            Jtr = Jtr.sum(dim=(1, 2))
+
+            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
+            Hess = w_unc[..., None] * Hess
+            Hess = Hess.sum(-3)  # ... x 6 x6
+
+            y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
+
+        elif self.args.net == 'lm_jmlp2':
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = w_unc[..., None] * Jtr
+            Jtr = Jtr.view(B, N, -1)    # added
+            Jtr = self.jmlp(Jtr) + Jtr  # added
+            Jtr = Jtr.view(B, N, -1, self.jin)
+            Jtr = Jtr.sum(dim=(1, 2))
+
+            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
+            Hess = w_unc[..., None] * Hess
+            Hess = Hess.sum(-3)  # ... x 6 x6
+
+            y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
+
+
         elif self.args.net == 'tf1':
             J = J.view(B, N, -1)
             J = self.j_sa(J)  # J^t@J
