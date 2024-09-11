@@ -59,6 +59,84 @@ def optimizer_step(g, H, lambda_=0, mute=False, mask=None, eps=1e-6):
     return delta.to(H.device)
 
 
+def optimizer_pstep(g, H, lambda_=0, mute=False, mask=None, eps=1e-6):
+    """One optimization step with Gauss-Newton or Levenberg-Marquardt.
+    Args:
+        g: batched gradient tensor of size (..., N).
+        H: batched hessian tensor of size (..., N, N).
+        lambda_: damping factor for LM (use GN if lambda_=0).
+        mask: denotes valid elements of the batch (optional).
+    """
+    if lambda_ is 0:  # noqa
+        diag = torch.zeros_like(g)
+    else:
+        # select 3DOF lambda, tx,ty,Rz
+        # idx = torch.tensor([0,2,4], device=g.device)
+        # lambda_ = torch.index_select(lambda_, 0, idx)
+
+        diag = H.diagonal(dim1=-2, dim2=-1) * lambda_
+    H = H + diag.clamp(min=eps).diag_embed()
+
+    if mask is not None:
+        # make sure that masked elements are not singular
+        H = torch.where(mask[..., None, None], H, torch.eye(H.shape[-1]).to(H))
+        # set g to 0 to delta is 0 for masked elements
+        g = g.masked_fill(~mask[..., None], 0.)
+
+    # add by shan
+    if torch.isnan(g).any() or torch.isnan(H).any():
+        print('nan in g or H, return 0 delta')
+        delta = torch.zeros_like(g)
+        return delta.to(H.device)
+
+    H_, g_ = H.cpu(), g.cpu()
+
+    H_pinv = torch.linalg.pinv(H_)
+    delta = - torch.einsum('bij,bj->bi', H_pinv, g_)
+
+    # try:
+    #     #U = torch.linalg.cholesky(H_.transpose(-2, -1).conj()).transpose(-2, -1).conj()
+    #     U = cholesky(H_)
+    # except RuntimeError as e:
+    #     if 'singular U' in str(e):
+    #         if not mute:
+    #             logger.debug(
+    #                 'Cholesky decomposition failed, fallback to LU.')
+    #         #delta = -torch.solve(g_[..., None], H_)[0][..., 0]
+    #         delta = -torch.linalg.solve(H_, g_[..., None])[0][..., 0]
+    #     else:
+    #         raise
+    # else:
+    #     delta = -torch.cholesky_solve(g_[..., None], U)[..., 0]
+
+    return delta.to(H.device)
+
+
+def optimizer_gstep(g, mask=None):
+    """
+    One optimization step with Gradient Descent.
+    Args:
+        g: batched gradient tensor of size (..., N).
+        learning_rate: learning rate for gradient descent.
+        mask: denotes valid elements of the batch (optional).
+    """
+    # Check for NaNs in the gradient
+    if torch.isnan(g).any():
+        print('nan in g, returning zero delta')
+        delta = torch.zeros_like(g)
+        return delta.to(g.device)
+
+    # If a mask is provided, mask the gradient
+    if mask is not None:
+        # Set g to 0 where the mask is False, effectively freezing those parameters
+        g = g.masked_fill(~mask[..., None], 0.)
+
+    # Gradient descent step
+    delta = - g  # negative because we want to descend
+
+    return delta.to(g.device)
+
+
 def skew_symmetric(v):
     """Create a skew-symmetric matrix from a (batched) vector of size (..., 3).
     """
