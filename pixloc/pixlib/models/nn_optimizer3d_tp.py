@@ -14,6 +14,7 @@ from .pointnet2 import PointNetEncoder2
 from .pointnet2_1 import PointNetEncoder2_1
 from pixloc.pixlib.models.mlp_mixer import MLPMixer
 from pixloc.pixlib.models.simplevit import SimpleViT, Transformer, CrossTransformer
+from pixloc.pixlib.geometry.optimization import optimizer_step
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,8 @@ class NNOptimizer3D(BaseOptimizer):
                 valid &= mask
             failed = failed | (valid.long().sum(-1) < 10)  # too few points
 
-            delta = self.nnrefine(res, F_query, F_ref2D, p3D, p3D_ref, J, w_unc, valid, scale, lambda_)
+            delta = self.nnrefine(res, F_query, F_ref2D, p3D, p3D_ref, J, w_unc, valid,
+                                  scale, lambda_, failed=failed)
 
             if self.conf.pose_from == 'aa':
                 # compute the pose update
@@ -377,7 +379,8 @@ class NNrefinev1_0(nn.Module):
                                          nn.Tanh())
 
 
-    def forward(self, res, query_feat, ref_feat, p3D_query, p3D_ref, J, w_unc, valid, scale, lambda_, integral=False):
+    def forward(self, res, query_feat, ref_feat, p3D_query, p3D_ref, J, w_unc, valid,
+                scale, lambda_, integral=False, failed=None):
 
         B, N, C = query_feat.size()
 
@@ -416,6 +419,17 @@ class NNrefinev1_0(nn.Module):
         if self.args.net == 'gd':
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
             y = - lambda_ * Jtr.sum(dim=(1, 2))
+        elif self.args.net == 'lm':
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = w_unc[..., None] * Jtr
+            Jtr = Jtr.sum(dim=(1, 2))
+
+            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
+            Hess = w_unc[..., None] * Hess
+            Hess = Hess.sum(-3)  # ... x 6 x6
+
+            y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
+
         elif self.args.net == 'mlp':
             Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
             Jtr = Jtr.view(B, N, -1)
