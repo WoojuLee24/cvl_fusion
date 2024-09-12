@@ -94,20 +94,6 @@ def optimizer_pstep(g, H, lambda_=0, mute=False, mask=None, eps=1e-6):
     H_pinv = torch.linalg.pinv(H_)
     delta = - torch.einsum('bij,bj->bi', H_pinv, g_)
 
-    # try:
-    #     #U = torch.linalg.cholesky(H_.transpose(-2, -1).conj()).transpose(-2, -1).conj()
-    #     U = cholesky(H_)
-    # except RuntimeError as e:
-    #     if 'singular U' in str(e):
-    #         if not mute:
-    #             logger.debug(
-    #                 'Cholesky decomposition failed, fallback to LU.')
-    #         #delta = -torch.solve(g_[..., None], H_)[0][..., 0]
-    #         delta = -torch.linalg.solve(H_, g_[..., None])[0][..., 0]
-    #     else:
-    #         raise
-    # else:
-    #     delta = -torch.cholesky_solve(g_[..., None], U)[..., 0]
 
     return delta.to(H.device)
 
