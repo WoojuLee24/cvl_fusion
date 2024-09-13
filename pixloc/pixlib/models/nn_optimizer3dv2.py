@@ -141,7 +141,7 @@ class NNOptimizer3D(BaseOptimizer):
                 p3D_ref = p3D_ref * valid
                 J = J * valid.unsqueeze(dim=-1).detach()
 
-            delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale, J)
+            delta = self.nnrefine(F_query, F_ref2D, p3D, p3D_ref, scale, J, w_unc)
 
             if self.conf.pose_from == 'aa':
                 # compute the pose update
@@ -873,7 +873,7 @@ class NNrefinev1_0(nn.Module):
                                          nn.Tanh())
 
 
-    def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale, J=None, integral=False):
+    def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale, J=None, w_unc=None, integral=False):
 
         B, N, C = query_feat.size()
 
@@ -977,6 +977,13 @@ class NNrefinev1_1(nn.Module):
                                      nn.ReLU(inplace=False),
                                      nn.Linear(self.dim, self.dim))
 
+        if self.args.pose_from == 'aa':
+            self.jin = 6
+            self.yout = 6
+        elif self.args.pose_from == 'rt':
+            self.jin = 3
+            self.yout = 3
+
         # channel projection
         if self.args.version in [1.0]:
             self.cout = self.dim * 6
@@ -997,15 +1004,12 @@ class NNrefinev1_1(nn.Module):
             self.cout = self.cout + self.dim*3
             if self.args.net == 'tp2':
                 self.cout = self.cout + self.dim*9
-
-        if self.args.pose_from == 'aa':
-            self.yout = 6
-        elif self.args.pose_from == 'rt':
-            self.yout = 3
+            elif self.args.net == 'tp3':
+                self.cout = self.cout + self.jin ** 2
 
 
         # if self.args.pool == 'none':
-        if self.args.net in ['mlp', 'tp1', 'tp2']:
+        if self.args.net in ['mlp', 'tp1', 'tp2', 'tp3']:
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
                                          nn.Linear(self.args.max_num_points3D, 256),
                                          nn.ReLU(inplace=False),
@@ -1149,7 +1153,7 @@ class NNrefinev1_1(nn.Module):
 
 
 
-    def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale, J=None, integral=False):
+    def forward(self, query_feat, ref_feat, p3D_query, p3D_ref, scale, J=None, w_unc=None, integral=False):
 
         B, N, C = query_feat.size()
 
@@ -1205,9 +1209,18 @@ class NNrefinev1_1(nn.Module):
                 J = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
                 J = J.reshape(B, N, -1).contiguous()
             elif self.args.net == 'tp2':
-                Hess = torch.einsum('...ni,...nj->...nij', J, J)
-                Hess = Hess.reshape(B, N, -1).contiguous()
+                Hess_ = torch.einsum('...ni,...nj->...nij', J, J)
+                Hess = torch.einsum('...i,...j->...ij', J, J)
+                diag = Hess.diagonal(dim1=-2, dim2=-1)
+                Hess = Hess + diag.clamp(min=1e-6).diag_embed()
+
+
                 J = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+                J = J.reshape(B, N, -1).contiguous()
+                J = torch.cat([J, Hess], dim=-1)
+            elif self.args.net == 'tp3':
+                Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)
+                Hess = Hess.reshape(B, N, -1).contiguous()
                 J = J.reshape(B, N, -1).contiguous()
                 J = torch.cat([J, Hess], dim=-1)
             else:

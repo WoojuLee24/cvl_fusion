@@ -67,7 +67,7 @@ def optimizer_pstep(g, H, lambda_=0, mute=False, mask=None, eps=1e-6):
         lambda_: damping factor for LM (use GN if lambda_=0).
         mask: denotes valid elements of the batch (optional).
     """
-    if lambda_ is 0:  # noqa
+    if lambda_ == 0:  # noqa
         diag = torch.zeros_like(g)
     else:
         # select 3DOF lambda, tx,ty,Rz

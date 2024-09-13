@@ -48,7 +48,8 @@ class NNOptimizer3D(BaseOptimizer):
         pool='none',    # 'embed_aap2'
         norm='none',
         pose_from='rt', # 'aa'
-        pose_loss=False,
+        pose_loss='triplet', # 'triplet', 'rr'
+        pose_lambda=1,
         main_loss='reproj2',    # reproj
         coe_lat=1.,
         coe_lon=1.,
@@ -67,7 +68,8 @@ class NNOptimizer3D(BaseOptimizer):
         normalize_geometry='none',
         normalize_geometry_feature='l2', #'none',
         opt_list=False,
-        jacobian=False,
+        jacobian=True,
+        jtr=False,
         integral=False,
         kp=1.,
         kd=1.,
@@ -82,10 +84,14 @@ class NNOptimizer3D(BaseOptimizer):
         self.conf = conf
         num_lambda = 3 if self.conf.pose_from == 'rt' else 6
         self.dampingnet = DampingNet(conf.damping, num_lambda)
-        if self.conf.nnrefine == 'v1.0':
+        if self.conf.nnrefine == 'v0.1':
+            self.nnrefine = NNrefinev0_1(conf)
+        elif self.conf.nnrefine == 'v1.0':
             self.nnrefine = NNrefinev1_0(conf)
         elif self.conf.nnrefine == 'v1.1':
             self.nnrefine = NNrefinev1_1(conf)
+        elif self.conf.nnrefine == 'v2.0':
+            self.nnrefine = NNrefinev2_0(conf)
         assert conf.learned_damping
         super()._init(conf)
 
@@ -109,7 +115,7 @@ class NNOptimizer3D(BaseOptimizer):
         J_scaling = None
         if self.conf.normalize_features:
             F_query = torch.nn.functional.normalize(F_query, dim=-1)
-        args = (camera, p3D, F_ref, F_query, W_ref_query)
+        args = (self.conf.pose_from, camera, p3D, F_ref, F_query, W_ref_query)
         failed = torch.full(T.shape, False, dtype=torch.bool, device=T.device)
 
         lambda_ = self.dampingnet()
@@ -126,7 +132,7 @@ class NNOptimizer3D(BaseOptimizer):
             p3D = (p3D - mean) / (std + 1e-6)
 
         for i in range(self.conf.num_iters):
-            res, valid, w_unc, p3D_ref, F_ref2D, J = self.cost_fn.residual_jacobian3(T, self.conf.pose_from, *args)
+            res, valid, w_unc, p3D_ref, F_ref2D, J = self.cost_fn.residual_jacobian3(T, *args)
 
             if self.conf.normalize_geometry == 'zsn':
                 p3D_ref = (p3D_ref - p3D_ref.mean()) / (p3D_ref.std() + 1e-6)
@@ -139,8 +145,7 @@ class NNOptimizer3D(BaseOptimizer):
                 valid &= mask
             failed = failed | (valid.long().sum(-1) < 10)  # too few points
 
-            delta = self.nnrefine(res, F_query, F_ref2D, p3D, p3D_ref, J, w_unc, valid,
-                                  scale, lambda_, failed=failed)
+            delta = self.nnrefine(res, F_query, F_ref2D, p3D, p3D_ref, J, w_unc, valid, scale, lambda_, failed)
 
             if self.conf.pose_from == 'aa':
                 # compute the pose update
@@ -153,7 +158,10 @@ class NNOptimizer3D(BaseOptimizer):
                 T_delta = Pose.from_aa(dw, dt)
             elif self.conf.pose_from == 'rt':
                 # rescaling
-                delta = delta * shift_range
+                mul_range = torch.tensor([[self.conf.trans_range, self.conf.trans_range, self.conf.rot_range]], dtype=torch.float32)
+                mul_range = mul_range.to(shift_range.device)
+                shift_range = shift_range * mul_range
+                delta = delta * shift_range.detach()
                 # shiftxyr += delta
 
                 dt, dw = delta.split([2, 1], dim=-1)
@@ -197,8 +205,7 @@ class NNrefinev1_0(nn.Module):
         self.p3d_std = torch.tensor([[[9.1397,  0.0000, 10.4613]]], dtype=torch.float32).cuda()
 
         self.cin = self.args.input_dim  # [128, 128, 32]
-        self.jin = 3 if self.args.pose_from=='rt' else 6
-        # self.cout = self.cin[0] * 3
+        self.cout = 96
         pointc = self.cin[2]
         self.initialize_rsum()
 
@@ -209,38 +216,41 @@ class NNrefinev1_0(nn.Module):
                                      nn.ReLU(inplace=False),
                                      nn.Linear(pointc, pointc))
 
-        # # channel projection
-        # if self.args.version in [1.0]:
-        #     self.cin = [c * 3 + pointc * 3 for c in self.cin]    # self.cin = [c * 3 + 2 * pointc for c in self.cin]
-        # elif self.args.version in [1.01]:
-        #     self.cin = [c * 3 + pointc * 2 for c in self.cin]
-        # elif self.args.version in [1.02]:
-        #     self.cin = [c * 3 + pointc for c in self.cin]
-        # elif self.args.version in [1.03]:
-        #     self.cin = [c + pointc * 3 for c in self.cin]
-        # elif self.args.version in [1.04]:
-        #     self.cin = [c * 3 for c in self.cin]
-        # elif self.args.version in [1.05]:
-        #     self.cin = [c for c in self.cin]
-        #
-        # if self.args.integral:
-        #     I_size = self.args.input_dim
-        #     self.cin = [c+I_size[i] for i, c in enumerate(self.cin)]
-        # if self.args.jacobian:
-        #     J_size = self.args.input_dim
-        #     self.cin = [c+J_size[i]*3 for i, c in enumerate(self.cin)]
+        # channel projection
+        if self.args.version in [1.0]:
+            self.cin = [c * 3 + pointc * 3 for c in self.cin]    # self.cin = [c * 3 + 2 * pointc for c in self.cin]
+        elif self.args.version in [1.01]:
+            self.cin = [c * 3 + pointc * 2 for c in self.cin]
+        elif self.args.version in [1.02]:
+            self.cin = [c * 3 + pointc for c in self.cin]
+        elif self.args.version in [1.03]:
+            self.cin = [c + pointc * 3 for c in self.cin]
+        elif self.args.version in [1.04]:
+            self.cin = [c * 3 for c in self.cin]
+        elif self.args.version in [1.05]:
+            self.cin = [c for c in self.cin]
+
+        if self.args.integral:
+            I_size = self.args.input_dim
+            self.cin = [c+I_size[i] for i, c in enumerate(self.cin)]
+        if self.args.jacobian:
+            J_size = self.args.input_dim
+            if self.args.jtr:
+                self.cin = [c + J_size[i] * 6 for i, c in enumerate(self.cin)]
+            else:
+                self.cin = [c+J_size[i]*3 for i, c in enumerate(self.cin)]
 
         if self.args.pose_from == 'aa':
             self.yout = 6
         elif self.args.pose_from == 'rt':
             self.yout = 3
 
-        # self.linear0 = nn.Sequential(nn.ReLU(inplace=True),
-        #                              nn.Linear(self.cin[0], self.cout))
-        # self.linear1 = nn.Sequential(nn.ReLU(inplace=True),
-        #                              nn.Linear(self.cin[1], self.cout))
-        # self.linear2 = nn.Sequential(nn.ReLU(inplace=True),
-        #                              nn.Linear(self.cin[2], self.cout))
+        self.linear0 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Linear(self.cin[0], self.cout))
+        self.linear1 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Linear(self.cin[1], self.cout))
+        self.linear2 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Linear(self.cin[2], self.cout))
 
         # if self.args.pool == 'none':
         if self.args.net == 'mlp':  # default
@@ -251,7 +261,7 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(64, 16)
                                          )
-            self.cout = self.cin[0] * 3 * 16
+            self.cout *= 16
 
             self.mapping = nn.Sequential(nn.ReLU(inplace=False),
                                          nn.Linear(self.cout, 128),
@@ -260,78 +270,78 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
-        elif self.args.net == 'pmlp':
+
+        elif self.args.net == 'mlp1':
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 16),
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net == 'mlp2':
+            self.pooling = nn.Sequential(nn.LayerNorm(self.args.topk),
                                          nn.Linear(self.args.max_num_points3D, 256),
-                                         nn.ReLU(inplace=False),
+                                         nn.GELU(),
+                                         nn.LayerNorm(256),
                                          nn.Linear(256, 64),
-                                         nn.ReLU(inplace=False),
+                                         nn.GELU(),
+                                         nn.LayerNorm(64),
                                          nn.Linear(64, 16)
                                          )
-            self.cout = self.cin[0] * 16
+            self.cout *= 16
 
-            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+            self.mapping = nn.Sequential(nn.LayerNorm(self.cout),
                                          nn.Linear(self.cout, 128),
-                                         nn.ReLU(inplace=False),
+                                         nn.GELU(),
+                                         nn.LayerNorm(128),
                                          nn.Linear(128, 32),
-                                         nn.ReLU(inplace=False),
+                                         nn.GELU(),
+                                         nn.LayerNorm(32),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
-        elif self.args.net in ['jmlp', 'lm_jmlp']:
-            self.cout = self.cin[0] * self.jin
-            hidden_dim = 512
-            self.jmlp = nn.Sequential(nn.ReLU(inplace=False),
-                                      nn.Linear(self.cout, hidden_dim),
-                                      nn.ReLU(inplace=False),
-                                      nn.Linear(hidden_dim, hidden_dim),
-                                      nn.ReLU(inplace=False),
-                                      nn.Linear(hidden_dim, self.cout))
-        elif self.args.net in ['nn_jmlp']:
-            self.cout = self.cin[0] * self.jin
-            hidden_dim = 512
-            self.jmlp = nn.Sequential(nn.ReLU(inplace=False),
-                                      nn.Linear(self.cout, hidden_dim),
-                                      nn.ReLU(inplace=False),
-                                      nn.Linear(hidden_dim, hidden_dim),
-                                      nn.ReLU(inplace=False),
-                                      nn.Linear(hidden_dim, self.cout))
-        elif self.args.net in ['lm_jsa']:
-            jin = self.cin[0] * self.jin
-            hidden_dim = self.cin[0]
-            self.j_sa = Transformer(dim=jin,
-                                    depth=1,
-                                    heads=8,
-                                    dim_head=hidden_dim // 8,
-                                    mlp_dim=jin)
 
-        elif self.args.net in ['jmlp2', 'lm_jmlp2']:
-            jin = self.cin[0] * self.jin
-            hidden_dim = 512
-
-            self.jmlp = nn.Sequential(nn.ReLU(inplace=False),
-                                      nn.Linear(jin, hidden_dim),
-                                      nn.ReLU(inplace=False),
-                                      nn.Linear(hidden_dim, hidden_dim),
-                                      nn.ReLU(inplace=False),
-                                      nn.Linear(hidden_dim, jin))
-
-            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+        elif self.args.net == 'mlp2.1':
+            self.pooling = nn.Sequential(#nn.LayerNorm(self.args.topk),
                                          nn.Linear(self.args.max_num_points3D, 256),
-                                         nn.ReLU(inplace=False),
+                                         nn.GELU(),
+                                         #nn.LayerNorm(256),
                                          nn.Linear(256, 64),
-                                         nn.ReLU(inplace=False),
+                                         nn.GELU(),
+                                         #nn.LayerNorm(64),
                                          nn.Linear(64, 16)
                                          )
-            self.cout = self.cin[0] * self.jin  * 16
+            self.cout *= 16
 
-            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+            self.mapping = nn.Sequential(#nn.LayerNorm(self.cout),
                                          nn.Linear(self.cout, 128),
-                                         nn.ReLU(inplace=False),
+                                         nn.GELU(),
+                                         #nn.LayerNorm(128),
                                          nn.Linear(128, 32),
-                                         nn.ReLU(inplace=False),
+                                         nn.GELU(),
+                                         #nn.LayerNorm(32),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
 
+        elif self.args.net == 'mlp2.2':
+            self.pooling = nn.Sequential(nn.GELU(),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.GELU(),
+                                         nn.Linear(256, 64),
+                                         nn.GELU(),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.GELU(),
+                                         nn.Linear(self.cout, 128),
+                                         nn.GELU(),
+                                         nn.Linear(128, 32),
+                                         nn.GELU(),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
 
         elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
             self.mlp_mixer = MLPMixer(self.args.net,
@@ -362,45 +372,11 @@ class NNrefinev1_0(nn.Module):
                                          nn.LayerNorm(32),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
-        elif args.net in ['tf1']:
-            cin = self.cin[0]
-            jin = self.cin[0] * 3
-            hidden_dim = jin
-            self.j_sa = Transformer(dim=jin,
-                                    depth=1,
-                                    heads=8,
-                                    dim_head=hidden_dim // 8,
-                                    mlp_dim=jin)
 
-            self.j_ca = CrossTransformer(dim1=jin,
-                                         dim2=cin,
-                                         depth=1,
-                                         heads=8,
-                                         dim_head=hidden_dim // 8,
-                                         mlp_dim=jin)
-
-            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
-                                         nn.Linear(self.args.max_num_points3D, 256),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(256, 64),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(64, 16)
-                                         )
-            self.cout = jin * 16
-
-            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
-                                         nn.Linear(self.cout, 128),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(128, 32),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(32, self.yout),
-                                         nn.Tanh())
-
-
-    def forward(self, res, query_feat, ref_feat, p3D_query, p3D_ref, J, w_unc, valid,
-                scale, lambda_, integral=False, failed=None):
+    def forward(self, res, query_feat, ref_feat, p3D_query, p3D_ref, J, w_unc, valid, scale, lambda_, failed, integral=False):
 
         B, N, C = query_feat.size()
+        self.r_sum[2 - scale].append(res)
 
         if self.args.mask:
             valid = valid.float().unsqueeze(dim=-1).detach()
@@ -416,203 +392,78 @@ class NNrefinev1_0(nn.Module):
             res = res * w_unc
             J = J * w_unc.unsqueeze(dim=-1)
 
-        # p3D_query_feat = self.linearp(p3D_query.contiguous())
-        # p3D_ref_feat = self.linearp(p3D_ref.contiguous())
-        #
-        # # normalization
-        # if self.args.normalize_geometry_feature == 'l2':
-        #     p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
-        #     p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+        if self.args.version in [1.0, 1.01, 1.02, 1.03, 1.04, 1.05]:    # resconcat2
+            p3D_query_feat = self.linearp(p3D_query.contiguous())
+            p3D_ref_feat = self.linearp(p3D_ref.contiguous())
+
+            # normalization
+            if self.args.normalize_geometry_feature == 'l2':
+                p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
+                p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+
+            if self.args.version == 1.0:
+                r = torch.cat([query_feat, ref_feat, self.args.kp * res,
+                               p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
+            elif self.args.version == 1.01:
+                r = torch.cat([query_feat, ref_feat, self.args.kp * res,
+                               p3D_query_feat, p3D_ref_feat], dim=-1)
+            elif self.args.version == 1.02:
+                r = torch.cat([query_feat, ref_feat, self.args.kp * res,
+                               p3D_ref_feat], dim=-1)
+            elif self.args.version == 1.03:
+                r = torch.cat([self.args.kp * res,
+                               p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
+            elif self.args.version == 1.04:
+                r = torch.cat([query_feat, ref_feat, self.args.kp * res], dim=-1)
+            elif self.args.version == 1.05:
+                r = torch.cat([self.args.kp * res], dim=-1)
 
         self.r = res
 
-        # if self.args.integral:
-        #     self.r_sum[2-scale] += res
-        #     r = torch.cat([r, self.args.ki * self.r_sum[2-scale]], dim=-1)
+        if self.args.integral:
+            # self.r_sum[2-scale] += res
+            # r = torch.cat([r, self.args.ki * self.r_sum[2-scale]], dim=-1)
+            res_sum = sum(self.r_sum[2-scale]) / len(self.r_sum[2-scale])
+            r = torch.cat([r, self.args.ki * res_sum], dim=-1)
 
-        # if J is not None:
-        #     J = J.view(B, N, -1)
-        #     r = torch.cat([r, self.args.kd * J], dim=-1)
+        if self.args.jacobian:
+            if self.args.jtr:
+                Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+                Jtr = Jtr.view(B, N, -1)
+                r = torch.cat([r, self.args.kd * Jtr], dim=-1)
+            J = J.view(B, N, -1)
+            r = torch.cat([r, self.args.kd * J], dim=-1)
 
-        if self.args.net == 'gd':
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            y = - lambda_ * Jtr.sum(dim=(1, 2))
-        elif self.args.net == 'lm':
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = w_unc[..., None] * Jtr
-            Jtr = Jtr.sum(dim=(1, 2))
+        B, N, C = r.shape
+        if 2-scale == 0:
+            x = self.linear0(r)
+        elif 2-scale == 1:
+            x = self.linear1(r)
+        elif 2-scale == 2:
+            x = self.linear2(r)
 
-            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
-            Hess = w_unc[..., None] * Hess
-            Hess = Hess.sum(-3)  # ... x 6 x6
-
-            y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
-        elif self.args.net == 'lmp':
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = w_unc[..., None] * Jtr
-            Jtr = Jtr.sum(dim=(1, 2))
-
-            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
-            Hess = w_unc[..., None] * Hess
-            Hess = Hess.sum(-3)  # ... x 6 x6
-
-            # y_ = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
-            y = optimizer_pstep(Jtr, Hess, lambda_, mask=~failed)
-        elif self.args.net == 'lm-l':
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = w_unc[..., None] * Jtr
-            Jtr = Jtr.sum(dim=(1, 2))
-
-            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
-            Hess = w_unc[..., None] * Hess
-            Hess = Hess.sum(-3)  # ... x 6 x6
-
-            lambda_fake = torch.ones_like(lambda_)
-
-            y = optimizer_step(Jtr, Hess, lambda_fake, mask=~failed)
-        elif self.args.net == 'lm-lw':
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = Jtr.sum(dim=(1, 2))
-
-            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
-            Hess = Hess.sum(-3)  # ... x 6 x6
-
-            lambda_fake = torch.ones_like(lambda_)
-
-            y = optimizer_step(Jtr, Hess, lambda_fake, mask=~failed)
-        elif self.args.net == 'mlp':
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = Jtr.view(B, N, -1)
-            x = Jtr.contiguous().permute(0, 2, 1).contiguous()
+        if self.args.net in ['mlp', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
+            x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
-            y = - self.mapping(x)
-        elif self.args.net == 'pmlp':
-            # Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            # Jtr = Jtr.view(B, N, -1)
-            x = res.contiguous().permute(0, 2, 1).contiguous()
+            y = self.mapping(x)  # [B, 3]
+        elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
+            x = self.mlp_mixer(x)
+            x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
-            y = - self.mapping(x)
-        elif self.args.net == 'jmlp':
-            J = J.view(B, N, -1)
-            J = self.jmlp(J) + J
-            J = J.view(B, N, -1, self.jin)
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = w_unc[..., None] * Jtr
-            y = - Jtr.sum(dim=(1, 2))
-        elif self.args.net == 'jmlp2':
-            J = J.view(B, N, -1)
-            J = self.jmlp(J) + J
-            J = J.view(B, N, -1, self.jin)
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = Jtr.view(B, N, -1)
-            x = Jtr.contiguous().permute(0, 2, 1).contiguous()
-            x = self.pooling(x)
-            x = x.view(B, -1)
-            y = - self.mapping(x)
-        elif self.args.net == 'lm_jmlp':
-            J = J.view(B, N, -1)
-            J = self.jmlp(J) + J    # added
-            J = J.view(B, N, -1, self.jin)
-
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = w_unc[..., None] * Jtr
-            Jtr = Jtr.sum(dim=(1, 2))
-
-            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
-            Hess = w_unc[..., None] * Hess
-            Hess = Hess.sum(-3)  # ... x 6 x 6
-
-            y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
-        elif self.args.net == 'nn_jmlp':
-            J = J.view(B, N, -1)
-            J = self.jmlp(J) + J  # added
-            J = J.view(B, N, -1, self.jin)
-
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = w_unc[..., None] * Jtr
-            Jtr = Jtr.sum(dim=(1, 2))
-
-            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
-            Hess = w_unc[..., None] * Hess
-            Hess = Hess.sum(-3)  # ... x 6 x 6
-
-            y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
-
-        elif self.args.net == 'lm_jsa': # out of memory
-            J = J.view(B, N, -1)
-            J = self.j_sa(J)     # added
-            J = J.view(B, N, -1, self.jin)
-
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = w_unc[..., None] * Jtr
-            Jtr = Jtr.sum(dim=(1, 2))
-
-            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
-            Hess = w_unc[..., None] * Hess
-            Hess = Hess.sum(-3)  # ... x 6 x 6
-
-            y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
-
-        elif self.args.net == 'lm_jmlp2':
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = w_unc[..., None] * Jtr
-            Jtr = Jtr.view(B, N, -1)    # added
-            Jtr = self.jmlp(Jtr) + Jtr  # added
-            Jtr = Jtr.view(B, N, -1, self.jin)
-            Jtr = Jtr.sum(dim=(1, 2))
-
-            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
-            Hess = w_unc[..., None] * Hess
-            Hess = Hess.sum(-3)  # ... x 6 x6
-
-            y = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
-
-
-        elif self.args.net == 'tf1':
-            J = J.view(B, N, -1)
-            J = self.j_sa(J)  # J^t@J
-            J = self.j_ca(J, res)
-            J = J.view(B, N, -1, 3)
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            y = - Jtr.sum(dim=(1, 2))
-        elif self.args.net == 'tf2':
-            J = J.view(B, N, -1)
-            J = self.j_sa(J)  # J^t@J
-            J = self.j_ca(J, res)
-            J = J.view(B, N, -1, 3)
-            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
-            Jtr = Jtr.view(B, N, -1)
-            x = Jtr.contiguous().permute(0, 2, 1).contiguous()
-            x = self.pooling(x)
-            x = x.view(B, -1)
-            y = - self.mapping(x)
-
-        # B, N, C = r.shape
-        # if 2-scale == 0:
-        #     x = self.linear0(r)
-        # elif 2-scale == 1:
-        #     x = self.linear1(r)
-        # elif 2-scale == 2:
-        #     x = self.linear2(r)
-        #
-        # if self.args.net in ['mlp', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
-        #     x = x.contiguous().permute(0, 2, 1).contiguous()
-        #     x = self.pooling(x)
-        #     x = x.view(B, -1)
-        #     y = self.mapping(x)  # [B, 3]
-        # elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
-        #     x = self.mlp_mixer(x)
-        #     x = x.contiguous().permute(0, 2, 1).contiguous()
-        #     x = self.pooling(x)
-        #     x = x.view(B, -1)
-        #     y = self.mapping(x)  # [B, 3]
+            y = self.mapping(x)  # [B, 3]
 
         return y
 
-    def initialize_rsum(self):
-        self.r_sum = {0: 0, 1: 0, 2:0}
+    def initialize_rsum(self, scale=-1):
+        # self.r_sum = {0: 0, 1: 0, 2:0}
+        # self.r_sum = {0: [], 1: [], 2: []}
+        if scale == -1:
+            self.r_sum = {0: [], 1: [], 2: []}
+        else:
+            self.r_sum[2-scale] = []
+
 
 
 class NNrefinev1_1(nn.Module):
@@ -907,6 +758,336 @@ class NNrefinev1_1(nn.Module):
             x = self.pooling(x)
             x = x.view(B, -1)
             y = self.mapping(x)  # [B, 3]
+
+        return y
+
+    def initialize_rsum(self):
+        self.r_sum = {0: 0, 1: 0, 2:0}
+
+
+class NNrefinev2_0(nn.Module):
+    def __init__(self, args):
+        super(NNrefinev2_0, self).__init__()
+        self.args = args
+        self.p3d_mean = torch.tensor([[[0.3182,  1.6504, 14.9031]]], dtype=torch.float32).cuda()
+        self.p3d_std = torch.tensor([[[9.1397,  0.0000, 10.4613]]], dtype=torch.float32).cuda()
+
+        self.cin = self.args.input_dim  # [64, 64, 64]
+        self.jin = 3 if self.args.pose_from == 'rt' else 6
+        self.cout = 96
+        pointc = self.cin[2]
+        self.initialize_rsum()
+
+        # positional embedding
+        self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                     nn.ReLU(inplace=False),
+                                     nn.Linear(16, pointc),
+                                     nn.ReLU(inplace=False),
+                                     nn.Linear(pointc, pointc))
+
+        # channel projection
+        if self.args.version in [1.0]:
+            self.cin = [c * 3 + pointc * 3 for c in self.cin]    # self.cin = [c * 3 + 2 * pointc for c in self.cin]
+        elif self.args.version in [1.01]:
+            self.cin = [c * 3 + pointc * 2 for c in self.cin]
+        elif self.args.version in [1.02]:
+            self.cin = [c * 3 + pointc for c in self.cin]
+        elif self.args.version in [1.03]:
+            self.cin = [c + pointc * 3 for c in self.cin]
+        elif self.args.version in [1.04]:
+            self.cin = [c * 3 for c in self.cin]
+        elif self.args.version in [1.05]:
+            self.cin = [c for c in self.cin]
+
+        if self.args.integral:
+            I_size = self.args.input_dim
+            self.cin = [c+I_size[i] for i, c in enumerate(self.cin)]
+        if self.args.jacobian:
+            J_size = self.args.input_dim
+            self.cin = [c+J_size[i]*3 for i, c in enumerate(self.cin)]
+
+        if self.args.pose_from == 'aa':
+            self.yout = 6
+        elif self.args.pose_from == 'rt':
+            self.yout = 3
+
+        self.linear0 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Linear(self.cin[0], self.cout))
+        self.linear1 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Linear(self.cin[1], self.cout))
+        self.linear2 = nn.Sequential(nn.ReLU(inplace=True),
+                                     nn.Linear(self.cin[2], self.cout))
+
+        # if self.args.pool == 'none':
+        if self.args.net == 'mlp':  # default
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net in ['nmlp', 'nmlp2']:  # default
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+
+            self.cout = (1 + self.jin * 5) * 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net == 'mlp1':
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_points3D, 16),
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net == 'mlp2':
+            self.pooling = nn.Sequential(nn.LayerNorm(self.args.topk),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.GELU(),
+                                         nn.LayerNorm(256),
+                                         nn.Linear(256, 64),
+                                         nn.GELU(),
+                                         nn.LayerNorm(64),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.LayerNorm(self.cout),
+                                         nn.Linear(self.cout, 128),
+                                         nn.GELU(),
+                                         nn.LayerNorm(128),
+                                         nn.Linear(128, 32),
+                                         nn.GELU(),
+                                         nn.LayerNorm(32),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net == 'mlp2.1':
+            self.pooling = nn.Sequential(#nn.LayerNorm(self.args.topk),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.GELU(),
+                                         #nn.LayerNorm(256),
+                                         nn.Linear(256, 64),
+                                         nn.GELU(),
+                                         #nn.LayerNorm(64),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(#nn.LayerNorm(self.cout),
+                                         nn.Linear(self.cout, 128),
+                                         nn.GELU(),
+                                         #nn.LayerNorm(128),
+                                         nn.Linear(128, 32),
+                                         nn.GELU(),
+                                         #nn.LayerNorm(32),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net == 'mlp2.2':
+            self.pooling = nn.Sequential(nn.GELU(),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.GELU(),
+                                         nn.Linear(256, 64),
+                                         nn.GELU(),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.GELU(),
+                                         nn.Linear(self.cout, 128),
+                                         nn.GELU(),
+                                         nn.Linear(128, 32),
+                                         nn.GELU(),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
+            self.mlp_mixer = MLPMixer(self.args.net,
+                                      self.cout,  # in_channels
+                                      self.args.max_num_points3D,  # num_patches
+                                      hidden_size=self.cout,  # num_channels
+                                      hidden_s=512,
+                                      hidden_c=256,
+                                      drop_p=0, off_act=False)
+
+            self.pooling = nn.Sequential(nn.LayerNorm(self.args.max_num_points3D),
+                                         nn.Linear(self.args.max_num_points3D, 256),
+                                         nn.GELU(),
+                                         nn.LayerNorm(256),
+                                         nn.Linear(256, 64),
+                                         nn.GELU(),
+                                         nn.LayerNorm(64),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.LayerNorm(self.cout),
+                                         nn.Linear(self.cout, 128),
+                                         nn.GELU(),
+                                         nn.LayerNorm(128),
+                                         nn.Linear(128, 32),
+                                         nn.GELU(),
+                                         nn.LayerNorm(32),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+    def forward(self, res, query_feat, ref_feat, p3D_query, p3D_ref, J, w_unc, valid, scale, lambda_, failed, integral=False):
+
+        B, N, C = query_feat.size()
+
+        if self.args.mask:
+            valid = valid.float().unsqueeze(dim=-1).detach()
+            w_unc = w_unc.float().unsqueeze(dim=-1)
+            res = res * valid
+            query_feat = query_feat * valid
+            ref_feat = ref_feat * valid
+            p3D_query = p3D_query * valid
+            p3D_ref = p3D_ref * valid
+            J = J * valid.unsqueeze(dim=-1).detach()
+            w_unc = w_unc * valid
+
+        # if self.args.weights:
+        #     res = res * w_unc
+        #     J = J * w_unc.unsqueeze(dim=-1)
+        #     Hess = Hess * w_unc.unsqueeze(dim=-1)
+        #     Hess = Hess.sum(-3)
+
+        if self.args.net == 'lmp':
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = w_unc[..., None] * Jtr
+            Jtr = Jtr.sum(dim=(1, 2))
+
+            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
+            Hess = w_unc[..., None] * Hess
+            Hess = Hess.sum(-3)  # ... x 6 x6
+
+            # y_ = optimizer_step(Jtr, Hess, lambda_, mask=~failed)
+            y = optimizer_pstep(Jtr, Hess, lambda_, mask=~failed)
+
+        elif self.args.net == 'nmlp':
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = w_unc[..., None] * Jtr
+            Jtr = Jtr.sum(dim=2)
+
+            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
+            Hess = w_unc[..., None] * Hess  # ... x 6 x 6
+            Hess = Hess.reshape(B, N, -1)
+
+            res = res.sum(-1, keepdim=True)
+            J = J.sum(-2)
+
+            x = torch.cat([res, J, Jtr, Hess], dim=-1)
+            x = x.contiguous().permute(0, 2, 1).contiguous()
+            x = self.pooling(x)
+            x = x.view(B, -1)
+            y = self.mapping(x)
+
+        elif self.args.net == 'nmlp2':
+            Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
+            Jtr = w_unc[..., None] * Jtr
+            Jtr = Jtr.sum(dim=2)
+
+            Hess = torch.einsum('...ijk,...ijl->...ikl', J, J)  # ... x N x 6 x 6
+            Hess = w_unc[..., None] * Hess  # ... x 6 x 6
+
+            diag = Hess.diagonal(dim1=-2, dim2=-1) * lambda_
+            Hess = Hess + diag.clamp(min=1e-6).diag_embed()
+            Hess_pinv = torch.linalg.pinv(Hess)
+            Hess_pinv = Hess_pinv.reshape(B, N, -1)
+
+            res = res.sum(-1, keepdim=True)
+            J = J.sum(-2)
+
+            x = torch.cat([res, J, Jtr, Hess_pinv], dim=-1)
+            x = x.contiguous().permute(0, 2, 1).contiguous()
+            x = self.pooling(x)
+            x = x.view(B, -1)
+            y = self.mapping(x)
+
+
+
+        # if self.args.version in [1.0, 1.01, 1.02, 1.03, 1.04, 1.05]:    # resconcat2
+        #     p3D_query_feat = self.linearp(p3D_query.contiguous())
+        #     p3D_ref_feat = self.linearp(p3D_ref.contiguous())
+        #
+        #     # normalization
+        #     if self.args.normalize_geometry_feature == 'l2':
+        #         p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
+        #         p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+        #
+        #     if self.args.version == 1.0:
+        #         r = torch.cat([query_feat, ref_feat, self.args.kp * res,
+        #                        p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
+        #     elif self.args.version == 1.01:
+        #         r = torch.cat([query_feat, ref_feat, self.args.kp * res,
+        #                        p3D_query_feat, p3D_ref_feat], dim=-1)
+        #     elif self.args.version == 1.02:
+        #         r = torch.cat([query_feat, ref_feat, self.args.kp * res,
+        #                        p3D_ref_feat], dim=-1)
+        #     elif self.args.version == 1.03:
+        #         r = torch.cat([self.args.kp * res,
+        #                        p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
+        #     elif self.args.version == 1.04:
+        #         r = torch.cat([query_feat, ref_feat, self.args.kp * res], dim=-1)
+        #     elif self.args.version == 1.05:
+        #         r = torch.cat([self.args.kp * res], dim=-1)
+        #
+        # self.r = res
+        #
+        # if self.args.integral:
+        #     self.r_sum[2-scale] += res
+        #     r = torch.cat([r, self.args.ki * self.r_sum[2-scale]], dim=-1)
+        #
+        # if J is not None:
+        #     J = J.view(B, N, -1)
+        #     r = torch.cat([r, self.args.kd * J], dim=-1)
+        #
+        # B, N, C = r.shape
+        # if 2-scale == 0:
+        #     x = self.linear0(r)
+        # elif 2-scale == 1:
+        #     x = self.linear1(r)
+        # elif 2-scale == 2:
+        #     x = self.linear2(r)
+        #
+        # if self.args.net in ['mlp', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
+        #     x = x.contiguous().permute(0, 2, 1).contiguous()
+        #     x = self.pooling(x)
+        #     x = x.view(B, -1)
+        #     y = self.mapping(x)  # [B, 3]
+        # elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
+        #     x = self.mlp_mixer(x)
+        #     x = x.contiguous().permute(0, 2, 1).contiguous()
+        #     x = self.pooling(x)
+        #     x = x.view(B, -1)
+        #     y = self.mapping(x)  # [B, 3]
 
         return y
 
