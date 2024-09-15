@@ -6,8 +6,7 @@ import matplotlib as mpl
 from omegaconf import OmegaConf
 import os
 from tqdm import tqdm
-import open3d as o3d
-
+# import open3d as o3d
 import pdb
 
 SavePlt = True
@@ -21,7 +20,7 @@ from pixloc.pixlib.utils.tools import set_seed
 from pixloc.pixlib.utils.experiments import load_experiment
 from pixloc.visualization.viz_2d import (
     plot_images, plot_keypoints, plot_matches, cm_RdGn,
-    features_to_RGB, add_text, save_plot, plot_valid_points, get_warp_sat2real)
+    features_to_RGB, add_text, save_plot, plot_valid_points, get_warp_sat2real, imsave)
 
 class Logger:
     def __init__(self, optimizers=None):
@@ -105,37 +104,70 @@ def Val(val_loader, save_path, best_result):
         F_res_init = F_q - F_r_init
         F_res_init = (F_res_init - F_res_init.mean()) / (F_res_init.std() + 1e-6)
 
-        pcd_q = o3d.geometry.PointCloud()
-        pcd_q.points = o3d.utility.Vector3dVector(p3D_q[0].cpu().numpy())
-        pcd_q.colors = o3d.utility.Vector3dVector(F_q[0].cpu().numpy())
+        # B, N, C = F_q.size()
+        # _, _, H, W = data['ref']['image'].size()
 
-        pcd_r_gt = o3d.geometry.PointCloud()
-        pcd_r_gt.points = o3d.utility.Vector3dVector(p3D_r_gt[0].cpu().numpy())
-        pcd_r_gt.colors = o3d.utility.Vector3dVector(F_r_gt[0].cpu().numpy())
+        imsave(data['ref']['image'][0], '/ws/external/visualizations/3dvoxel/', 'sat')
+        imsave(data['query']['image'][0], '/ws/external/visualizations/3dvoxel/', 'grd')
 
-        pcd_r_init = o3d.geometry.PointCloud()
-        pcd_r_init.points = o3d.utility.Vector3dVector(p3D_r_init[0].cpu().numpy())
-        pcd_r_init.colors = o3d.utility.Vector3dVector(F_r_init[0].cpu().numpy())
+        grd_proj_color = project(F_q, data['ref']['image'], p2D_r_gt)
+        grd_proj_point = project(255, data['ref']['image'], p2D_r_gt)
 
-        pcd_res_gt = o3d.geometry.PointCloud()
-        pcd_res_gt.points = o3d.utility.Vector3dVector(p3D_r_gt[0].cpu().numpy())
-        pcd_res_gt.colors = o3d.utility.Vector3dVector(F_res_gt[0].cpu().numpy())
+        imsave(grd_proj_color.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'grd_proj_color_gt')
+        imsave(grd_proj_point.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'grd_proj_point_gt')
 
-        pcd_res_init = o3d.geometry.PointCloud()
-        pcd_res_init.points = o3d.utility.Vector3dVector(p3D_r_init[0].cpu().numpy())
-        pcd_res_init.colors = o3d.utility.Vector3dVector(F_res_init[0].cpu().numpy())
+        grd_proj_color_init = project(F_q, data['ref']['image'], p2D_r_init)
+        grd_proj_point_init = project(255, data['ref']['image'], p2D_r_init)
 
-        o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_q.ply'), pcd_q)
-        o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_r_gt.ply'), pcd_r_gt)
-        o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_r_init.ply'), pcd_r_init)
-        o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_res_gt.ply'), pcd_res_gt)
-        o3d.io.write_point_cloud(os.path.join(save_path, 'pcd_res_init.ply'), pcd_res_init)
+        imsave(grd_proj_color_init.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'grd_proj_color_init')
+        imsave(grd_proj_point_init.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'grd_proj_point_init')
 
-        # o3d.visualization.draw_geometries([pcd_q])
-        # o3d.visualization.draw_geometries([pcd_r_gt])
-        # o3d.visualization.draw_geometries([pcd_r_init])
+
+        # p2D_r_gt, valid_r = cam_r.world2image(p3D_r_gt)
+        # grd_proj = torch.zeros((H*W, 3), device=p3D_q.device)
+        # xys =  p2D_r_gt[0].long() # p2D_r_gt[0].to(torch.int32) # (N, 2)
+        # colors = F_q[0] # (N, 3)
+        # # (x,y,c) = color
+        # indices = xys[:, 1] * W + xys[:, 0]
+        # indices = indices.view(-1, 1).expand(-1, 3)
+        #
+        # grd_proj.scatter_(0, indices.long(), 255)
+        # grd_proj = grd_proj.reshape(H, W, C)
+        # imsave(grd_proj.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'grd_proj_point')
+        #
+        # p2D_r_gt, valid_r = cam_r.world2image(p3D_r_gt)
+        # grd_proj = torch.zeros((H * W, 3), device=p3D_q.device)
+        # xys = p2D_r_gt[0].long()  # p2D_r_gt[0].to(torch.int32) # (N, 2)
+        # colors = F_q[0]  # (N, 3)
+        # # (x,y,c) = color
+        # indices = xys[:, 1] * W + xys[:, 0]
+        # indices = indices.view(-1, 1).expand(-1, 3)
+        #
+        # grd_proj.scatter_(0, indices.long(), colors)
+        # grd_proj = grd_proj.reshape(H, W, C)
+        # imsave(grd_proj.permute(2,0,1), '/ws/external/visualizations/3dvoxel', 'grd_proj_color')
 
     return 0
+
+def project(F_q, F_ref2D, p2D_r):
+    B, C, H, W = F_ref2D.size()
+
+    grd_proj = torch.zeros((H*W, C), device=F_ref2D.device)
+    xys = p2D_r[0].long()  # p2D_r_gt[0].to(torch.int32) # (N, 2)
+    if isinstance(F_q, torch.Tensor):
+        colors = F_q[0]  # (N, 3)
+    else:
+        colors = 255
+    indices = xys[:, 1] * W + xys[:, 0]
+    indices = indices.view(-1, 1).expand(-1, C)
+
+    grd_proj.scatter_(0, indices.long(), colors)
+    grd_proj = grd_proj.reshape(H, W, C)
+
+    return grd_proj
+
+
+
 
 def test(refiner, test_loader):
     refiner.eval()

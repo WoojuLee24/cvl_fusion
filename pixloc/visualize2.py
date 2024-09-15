@@ -85,15 +85,13 @@ def min_max_norm(confidence):
     return normed
 
 #val
-def Val(refiner, val_loader, save_path, best_result):
-    refiner.eval()
+def Val(val_loader, save_path, best_result):
     acc = 0
     cnt = 0
     for idx, data in zip(range(2959), val_loader):
         data_ = batch_to_device(data, device)
-        logger.set(data_)
-        pred_ = refiner(data_)
-        pred = map_tensor(pred_, lambda x: x[0].cpu())
+
+        # pred = map_tensor(pred_, lambda x: x[0].cpu())
         data = map_tensor(data, lambda x: x[0].cpu())
         cam_r = data['ref']['camera']
         cam_q = data['query']['camera']
@@ -102,7 +100,7 @@ def Val(refiner, val_loader, save_path, best_result):
         p2D_q, valid_q = data['query']['camera'].world2image(data['query']['T_w2cam']*p3D_q)
         p2D_r_gt, valid_r = cam_r.world2image(data['T_q2r_gt'] * p3D_q)
         p2D_r_init, _ = cam_r.world2image(data['T_q2r_init'] * p3D_q)
-        p2D_r_opt, _ = cam_r.world2image(pred['T_q2r_opt'][-1] * p3D_q)
+        # p2D_r_opt, _ = cam_r.world2image(pred['T_q2r_opt'][-1] * p3D_q)
 
         # # 2d
         # p2D_q, visible = cam_q.world2image(data['query']['T_w2cam'] * p3D_q)
@@ -120,27 +118,27 @@ def Val(refiner, val_loader, save_path, best_result):
 
         valid = valid_q & valid_r
 
-        losses = refiner.loss(pred_, data_)
-        mets = refiner.metrics(pred_, data_)
-        errP = f"ΔP {losses['reprojection_error/init'].item():.2f} -> {losses['reprojection_error'].item():.3f} px; "
-        errR = f"ΔR {mets['R_error/init'].item():.2f} -> {mets['R_error'].item():.3f} deg; "
-        errt = f"Δt {mets['t_error/init'].item():.2f} -> {mets['t_error'].item():.3f} m"
-        errlat = f"Δlat {mets['lat_error/init'].item():.2f} -> {mets['lat_error'].item():.3f} m"
-        errlong = f"Δlong {mets['long_error/init'].item():.2f} -> {mets['long_error'].item():.3f} m"
-        print(errP, errR, errt, errlat,errlong)
-
-        if mets['t_error'].item() < 1 and mets['R_error'].item() < 2:
-            acc += 1
-        cnt += 1
+        # losses = refiner.loss(pred_, data_)
+        # mets = refiner.metrics(pred_, data_)
+        # errP = f"ΔP {losses['reprojection_error/init'].item():.2f} -> {losses['reprojection_error'].item():.3f} px; "
+        # errR = f"ΔR {mets['R_error/init'].item():.2f} -> {mets['R_error'].item():.3f} deg; "
+        # errt = f"Δt {mets['t_error/init'].item():.2f} -> {mets['t_error'].item():.3f} m"
+        # errlat = f"Δlat {mets['lat_error/init'].item():.2f} -> {mets['lat_error'].item():.3f} m"
+        # errlong = f"Δlong {mets['long_error/init'].item():.2f} -> {mets['long_error'].item():.3f} m"
+        # print(errP, errR, errt, errlat,errlong)
+        #
+        # if mets['t_error'].item() < 1 and mets['R_error'].item() < 2:
+        #     acc += 1
+        # cnt += 1
 
         # for debug
         if 1:
             imr, imq = data['ref']['image'].permute(1, 2, 0), data['query']['image'].permute(1, 2, 0)
             plot_images([imr],dpi=50,  # set to 100-200 for higher res
-                             titles=[(valid_r.sum().item(), valid_q.sum().item()), errP + errt])
+                             titles=[(valid_r.sum().item(), valid_q.sum().item())])
             plot_keypoints([p2D_r_gt[valid]], colors='lime')
             plot_keypoints([p2D_r_init[valid]], colors='red')
-            plot_keypoints([p2D_r_opt[valid]], colors='blue')
+            # plot_keypoints([p2D_r_opt[valid]], colors='blue')
             if SavePlt:
                 save_plot(save_path + f'/sat_points.png')
             plt.show()
@@ -432,21 +430,25 @@ if __name__ == '__main__':
         'optimizer': {'num_iters': 5, },
     }
     # refiner = load_experiment(exp, conf, get_last=True).to(device)
-    refiner = load_experiment(exp, conf,
-                              ckpt='/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
-                              ).to(device)
-    save_path = '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
+    # refiner = load_experiment(exp, conf,
+    #                           ckpt='/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/checkpoint_best.tar'
+    #                           ).to(device)
+    # save_path = '/ws/external/checkpoints/Models/3d_res_embed_aap2_iters5_range.False_dup.False/visualizations'
+    # if not os.path.exists(save_path):
+    #     os.makedirs(save_path)
+    #
+    # print(OmegaConf.to_yaml(refiner.conf))
 
-    print(OmegaConf.to_yaml(refiner.conf))
-
-    logger = Logger(refiner.optimizer)
+    # logger = Logger(refiner.optimizer)
     # trainning
     set_seed(20)
+    save_path = '/ws/external/visualizations/visualize2'
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
 
     if 0: # test
         test(refiner, test_loader) #val_loader
     if 1: # visualization
-        Val(refiner, val_loader, save_path, 0)
+        # Val(refiner, val_loader, save_path, 0)
+        Val(val_loader, save_path, 0)
 
