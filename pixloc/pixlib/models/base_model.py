@@ -53,7 +53,8 @@ class BaseModel(nn.Module, metaclass=MetaModel):
         'name': None,
         'trainable': True,  # if false: do not optimize this model parameters
         'freeze_batch_normalization': False,  # use test-time statistics
-        'max_num_points3D': 2048,
+        'max_num_points3D': 5000,
+        'max_num_out_points3D': 15000,
         'center_num_points3D': 1024,
         'sampling': 'none',
         'iter_num_points3D': 1024,

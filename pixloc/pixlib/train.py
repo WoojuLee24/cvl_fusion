@@ -690,6 +690,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
 
             results = 0
             if (stop or it == (len(train_loader) - 1)):
+            # if it == 0:
                 ################
                 ###VALIDATION###
                 ################
