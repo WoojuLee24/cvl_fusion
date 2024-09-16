@@ -67,6 +67,7 @@ class NNOptimizer3D(BaseOptimizer):
         input_dim=[128, 128, 32],  # [32, 128, 128],
         normalize_geometry='none',
         normalize_geometry_feature='l2', #'none',
+        normalize_J='none', # l2
         opt_list=False,
         jacobian=True,
         jtr=False,
@@ -430,8 +431,12 @@ class NNrefinev1_0(nn.Module):
             if self.args.jtr:
                 Jtr = torch.einsum('...di,...dk->...di', J, res.unsqueeze(dim=-1))
                 Jtr = Jtr.view(B, N, -1)
+                if self.args.normalize_J == 'l2':
+                    Jtr = torch.nn.functional.normalize(Jtr, dim=-1)
                 r = torch.cat([r, self.args.kd * Jtr], dim=-1)
             J = J.view(B, N, -1)
+            if self.args.normalize_J == 'l2':
+                J = torch.nn.functional.normalize(J, dim=-1)
             r = torch.cat([r, self.args.kd * J], dim=-1)
 
         B, N, C = r.shape
