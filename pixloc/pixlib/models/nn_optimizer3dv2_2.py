@@ -271,14 +271,14 @@ class NNrefinev1_0(nn.Module):
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
 
-        elif self.args.net == 'mlp1':
-            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
-                                         nn.Linear(self.args.max_num_points3D, 16),
-                                         )
-            self.cout *= 16
 
+        elif self.args.net in ['mlp1.1', 'mlp1.2']:  # default
             self.mapping = nn.Sequential(nn.ReLU(inplace=False),
-                                         nn.Linear(self.cout, self.yout),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
                                          nn.Tanh())
 
         elif self.args.net == 'mlp2':
@@ -445,6 +445,15 @@ class NNrefinev1_0(nn.Module):
         if self.args.net in ['mlp', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
+            x = x.view(B, -1)
+            y = self.mapping(x)  # [B, 3]
+        elif self.args.net in ['mlp1.1']: # max pooling
+            x = x.max(dim=1)[0]
+            x = x.view(B, -1)
+            y = self.mapping(x)  # [B, 3]
+        elif self.args.net in ['mlp1.2']: # weighted avg pooling
+            x = w_unc * x
+            x = x.mean(dim=1)
             x = x.view(B, -1)
             y = self.mapping(x)  # [B, 3]
         elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
