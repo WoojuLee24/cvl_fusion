@@ -224,6 +224,8 @@ class NNrefinev1_0(nn.Module):
             self.cin = [c * 3 + pointc * 2 for c in self.cin]
         elif self.args.version in [1.02]:
             self.cin = [c * 3 + pointc for c in self.cin]
+        elif self.args.version in [1.06]:
+            self.cin = [c + pointc for c in self.cin]
         # elif self.args.version in [1.03]:
         #     self.cin = [c + pointc * 3 for c in self.cin]
         # elif self.args.version in [1.04]:
@@ -372,7 +374,7 @@ class NNrefinev1_0(nn.Module):
             res = res * w_unc
             J = J * w_unc.unsqueeze(dim=-1)
 
-        if self.args.version in [1.0, 1.01, 1.02, 1.03, 1.04, 1.05]:    # resconcat2
+        if self.args.version in [1.0, 1.01, 1.02, 1.03, 1.04, 1.05, 1.06]:    # resconcat2
             p3D_query_feat = self.linearp(p3D_query.contiguous())
             p3D_ref_feat = self.linearp(p3D_ref.contiguous())
 
@@ -404,6 +406,8 @@ class NNrefinev1_0(nn.Module):
                 r = torch.cat([query_feat, ref_feat, self.args.kp * res], dim=-1)
             elif self.args.version == 1.05:
                 r = torch.cat([self.args.kp * res], dim=-1)
+            elif self.args.version == 1.06:
+                r = torch.cat([ref_feat, p3D_ref_feat], dim=-1)
 
         self.r = res
 
