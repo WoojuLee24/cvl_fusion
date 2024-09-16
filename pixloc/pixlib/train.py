@@ -598,6 +598,27 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         errlong = torch.tensor([])
         errlat = torch.tensor([])
 
+        # state = (model.module if args.distributed else model).state_dict()
+        # checkpoint = {
+        #     'model': state,
+        #     'optimizer': optimizer.state_dict(),
+        #     'lr_scheduler': lr_scheduler.state_dict(),
+        #     'conf': OmegaConf.to_container(conf, resolve=True),
+        #     'epoch': epoch,
+        #     'losses': losses_,
+        # }
+        #
+        # # cp_name = f'checkpoint_{epoch}' + ('_interrupted' if stop else '')
+        # # cp_name = f'checkpoint_last' + ('_interrupted' if stop else '')
+        # if args.save_every_epoch:
+        #     cp_name = f'checkpoint_{epoch}' + ('_interrupted' if stop else '')
+        # else:
+        #     cp_name = f'checkpoint_last' + ('_interrupted' if stop else '')
+        #
+        # logger.info(f'Saving checkpoint {cp_name}')
+        # cp_path = str(output_dir / (cp_name + '.tar'))
+        # torch.save(checkpoint, cp_path)
+
         for it, data in enumerate(train_loader):
             tot_it = len(train_loader)*epoch + it
             model.train()
