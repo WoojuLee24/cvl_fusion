@@ -218,12 +218,15 @@ class NNrefinev1_0(nn.Module):
                                          nn.Linear(16, pointc),
                                          nn.ReLU(inplace=False),
                                          nn.Linear(pointc, pointc))
-        elif self.args.linearp == 'pointnet2':
-            self.linearp = nn.Sequential(nn.Linear(3, 16),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(16, pointc),
-                                         nn.ReLU(inplace=False),
-                                         nn.Linear(pointc, pointc))
+        elif self.args.linearp == 'pointnet2.1':
+            linearp_property = [0.2, 32, [32, 32, 32]]  # radius, nsample, mlp
+            self.linearp = PointNetEncoder2_1(self.args.max_num_points3D+self.args.max_num_out_points3D,
+                                              linearp_property[0],
+                                              linearp_property[1],
+                                              linearp_property[2],
+                                              self.args.linearp,
+                                              out_features=pointc)  # (B, N, output_dim)
+
 
         # channel projection
         if self.args.version in [1.0]:
@@ -310,6 +313,31 @@ class NNrefinev1_0(nn.Module):
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
 
+        elif self.args.net in ['mlp3', 'mlp3.1', 'mlp3.2']:  # default
+            num_points = self.args.max_num_points3D + self.args.max_num_out_points3D
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout))
+
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(num_points, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 1),
+                                         nn.Tanh()
+                                         )
+        elif self.args.net in ['mlp3.1', 'mlp3.2']:  # default
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout))
 
         elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
             self.mlp_mixer = MLPMixer(self.args.net,
@@ -382,22 +410,23 @@ class NNrefinev1_0(nn.Module):
             res = res * w_unc
             J = J * w_unc.unsqueeze(dim=-1)
 
+        # point feature [bnc]->[bnc']
+        p3D_query_feat = self.linearp(p3D_query.contiguous())
+        p3D_ref_feat = self.linearp(p3D_ref.contiguous())
+
+        # normalization
+        if self.args.normalize_geometry_feature == 'l2':
+            p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
+            p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
+
+        if self.args.mask == 'all':
+            p3D_query_feat = p3D_query_feat * valid
+            p3D_ref_feat = p3D_ref_feat * valid
+        elif self.args.mask == 'none_encoding':
+            p3D_query_feat = torch.cat([p3D_query_feat, valid], dim=-1)
+            p3D_ref_feat = torch.cat([p3D_ref_feat, valid], dim=-1)
+
         if self.args.version in [1.0, 1.01, 1.02, 1.03, 1.04, 1.05, 1.06]:    # resconcat2
-            p3D_query_feat = self.linearp(p3D_query.contiguous())
-            p3D_ref_feat = self.linearp(p3D_ref.contiguous())
-
-            # normalization
-            if self.args.normalize_geometry_feature == 'l2':
-                p3D_query_feat = torch.nn.functional.normalize(p3D_query_feat, dim=-1)
-                p3D_ref_feat = torch.nn.functional.normalize(p3D_ref_feat, dim=-1)
-
-            if self.args.mask == 'all':
-                p3D_query_feat = p3D_query_feat * valid
-                p3D_ref_feat = p3D_ref_feat * valid
-            elif self.args.mask == 'none_encoding':
-                p3D_query_feat = torch.cat([p3D_query_feat, valid], dim=-1)
-                p3D_ref_feat = torch.cat([p3D_ref_feat, valid], dim=-1)
-
             if self.args.version == 1.0:
                 r = torch.cat([query_feat, ref_feat, self.args.kp * res,
                                p3D_query_feat, p3D_ref_feat, p3D_query_feat - p3D_ref_feat], dim=-1)
@@ -445,6 +474,8 @@ class NNrefinev1_0(nn.Module):
         elif 2-scale == 2:
             x = self.linear2(r)
 
+        # point embedding: [bnc] -> [bn'c]
+        # channel embedding: [
         if self.args.net in ['mlp']:
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
@@ -456,6 +487,18 @@ class NNrefinev1_0(nn.Module):
             x = self.pooling(x)
             x = x.view(B, -1)
             y = self.mapping(x)  # [B, 3]
+        elif self.args.net == 'mlp3':
+            x = self.mapping(x)  # [B, N, 3]
+            x = x.contiguous().permute(0, 2, 1).contiguous()
+            y = self.pooling(x)
+            y = y.view(B, -1)
+        elif self.args.net == 'mlp3.1':
+            x = self.mapping(x)  # [B, N, 3]
+            y = x.max(dim=1)[0]
+        elif self.args.net == 'mlp3.2':
+            x = self.mapping(x)  # [B, N, 3]
+            x = x * w_unc
+            y = x.mean(dim=1)
         elif self.args.net in ['mixer', 'mixer_c', 'mixer_s']:
             x = self.mlp_mixer(x)
             x = x.contiguous().permute(0, 2, 1).contiguous()
