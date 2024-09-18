@@ -286,6 +286,24 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
+        elif self.args.net == 'mlp_n64':  # default
+            num_points = self.args.max_num_points3D + self.args.max_num_out_points3D
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(num_points, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 64)
+                                         )
+            self.cout *= 64
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
         elif self.args.net == 'mlpd':  # default
             num_points = self.args.max_num_points3D + self.args.max_num_out_points3D
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
@@ -302,10 +320,10 @@ class NNrefinev1_0(nn.Module):
 
             self.mapping = nn.Sequential(nn.ReLU(inplace=False),
                                          nn.Dropout(p=self.args.dropout),
-                                         nn.Linear(self.cout, 128),
+                                         nn.Linear(self.cout, 512),
                                          nn.ReLU(inplace=False),
                                          nn.Dropout(p=self.args.dropout),
-                                         nn.Linear(128, 32),
+                                         nn.Linear(512, 32),
                                          nn.ReLU(inplace=False),
                                          nn.Dropout(p=self.args.dropout),
                                          nn.Linear(32, self.yout),
@@ -502,7 +520,7 @@ class NNrefinev1_0(nn.Module):
 
         # point embedding: [bnc] -> [bn'c]
         # channel embedding: [
-        if self.args.net in ['mlp', 'mlpd']:
+        if self.args.net in ['mlp', 'mlpd', 'mlp_n64']:
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)

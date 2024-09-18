@@ -19,7 +19,7 @@ for i, satmap_file in enumerate(satmap_list):
     grdimage_file = 'image/data/' + grdimage_name
     pair[grdimage_file] = satmap_file
 
-np.save(os.path.join(root, 'raw_data/groundview_satellite_pair.npy'), pair)
+np.save(os.path.join(root, 'raw_data/groundview_satellite_pair_noise.npy'), pair)
 
 
 
