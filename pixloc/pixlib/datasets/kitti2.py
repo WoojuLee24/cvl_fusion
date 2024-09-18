@@ -378,7 +378,7 @@ class _Dataset(Dataset):
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
             image.save('/ws/external/debug_images/kitti2/sat.png')
 
-        if 0:
+        if 1:
             fig = plt.figure(figsize=plt.figaspect(0.5))
             ax1 = fig.add_subplot(1, 2, 1)
             ax2 = fig.add_subplot(1, 2, 2)
@@ -389,32 +389,32 @@ class _Dataset(Dataset):
             color_image1 = transforms.functional.to_pil_image(sat_map, mode='RGB')
             color_image1 = np.array(color_image1)
 
-            grd_2d, _ = grd_image['camera'].world2image(grd_image['points3D']) ##camera 3d to 2d
+            grd_2d, _ = grd_image['camera'].world2image(grd_image['points3D'])  ##camera 3d to 2d
             grd_2d = grd_2d.T
             for j in range(grd_2d.shape[1]):
-                cv2.circle(color_image0, (np.int32(grd_2d[0][j]), np.int32(grd_2d[1][j])), 5, (0, 255, 0),
-                       -1)
+                cv2.circle(color_image0, (np.int32(grd_2d[0][j]), np.int32(grd_2d[1][j])), 2, (0, 255, 0),
+                           -1)
 
-            # sat gt green
-            sat_3d = data['T_q2r_gt']*grd_image['points3D']
-            sat_2d, _ = sat_image['camera'].world2image(sat_3d)  ##camera 3d to 2d
-            sat_2d = sat_2d.T
-            for j in range(sat_2d.shape[1]):
-                cv2.circle(color_image1, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (0, 255, 0),
-                       -1)
-
-            origin = torch.zeros(3)
-            origin_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * origin)
-            cv2.circle(color_image1, (np.int32(origin_2d_gt[0,0]), np.int32(origin_2d_gt[0,1])), 5, (0, 255, 0),
-                       -1)
-
-            #sat init red
-            sat_3d = data['T_q2r_init']* grd_image['points3D']
-            sat_2d, _ = sat_image['camera'].world2image(sat_3d)  ##camera 3d to 2d
-            sat_2d = sat_2d.T
-            for j in range(sat_2d.shape[1]):
-                cv2.circle(color_image1, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (255, 0, 0),
-                       -1)
+            # # sat gt green
+            # sat_3d = data['T_q2r_gt']*grd_image['points3D']
+            # sat_2d, _ = sat_image['camera'].world2image(sat_3d)  ##camera 3d to 2d
+            # sat_2d = sat_2d.T
+            # for j in range(sat_2d.shape[1]):
+            #     cv2.circle(color_image1, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 5, (0, 255, 0),
+            #            -1)
+            #
+            # origin = torch.zeros(3)
+            # origin_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * origin)
+            # cv2.circle(color_image1, (np.int32(origin_2d_gt[0,0]), np.int32(origin_2d_gt[0,1])), 5, (0, 255, 0),
+            #            -1)
+            #
+            # #sat init red
+            # sat_3d = data['T_q2r_init']* grd_image['points3D']
+            # sat_2d, _ = sat_image['camera'].world2image(sat_3d)  ##camera 3d to 2d
+            # sat_2d = sat_2d.T
+            # for j in range(sat_2d.shape[1]):
+            #     cv2.circle(color_image1, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (255, 0, 0),
+            #            -1)
 
             ax1.imshow(color_image0)
             ax2.imshow(color_image1)
@@ -424,7 +424,7 @@ class _Dataset(Dataset):
             origin = torch.zeros(3)
             origin_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * origin)
             origin_2d_init, _ = data['ref']['camera'].world2image(data['T_q2r_init'] * origin)
-            direct = torch.tensor([0,0,6.])
+            direct = torch.tensor([0, 0, 6.])
             direct_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * direct)
             direct_2d_init, _ = data['ref']['camera'].world2image(data['T_q2r_init'] * direct)
             origin_2d_gt = origin_2d_gt.squeeze(0)
@@ -433,16 +433,16 @@ class _Dataset(Dataset):
             direct_2d_init = direct_2d_init.squeeze(0)
 
             # plot the init direction of the body frame
-            plt.scatter(x=origin_2d_init[0], y=origin_2d_init[1], c='r', s=10)
+            plt.scatter(x=origin_2d_init[0], y=origin_2d_init[1], c='r', s=0.5)
             plt.quiver(origin_2d_init[0], origin_2d_init[1], direct_2d_init[0] - origin_2d_init[0],
                        origin_2d_init[1] - direct_2d_init[1], color=['r'], scale=None)
             # plot the gt direction of the body frame
-            plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=10)
+            plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=0.5)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
             plt.savefig('/ws/external/debug_images/kitti2/direction.png')
             plt.show()
-            print(idx,file_name, pitch, roll)
+            print(idx, file_name, pitch, roll)
 
         return data
 

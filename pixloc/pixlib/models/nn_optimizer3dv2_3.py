@@ -76,6 +76,7 @@ class NNOptimizer3D(BaseOptimizer):
         kd=1.,
         ki=1.,
         multi_pose=1,
+        dropout=0.2,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -285,6 +286,30 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
+        elif self.args.net == 'mlpd':  # default
+            num_points = self.args.max_num_points3D + self.args.max_num_out_points3D
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(num_points, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
 
         elif self.args.net == 'mlp2':
             self.encoding = nn.Sequential(nn.ReLU(inplace=False),
@@ -447,6 +472,7 @@ class NNrefinev1_0(nn.Module):
                 r = torch.cat([ref_feat, p3D_ref_feat], dim=-1)
 
         self.r = res
+        self.p3D_ref_feat = p3D_ref_feat
 
         if self.args.integral:
             # self.r_sum[2-scale] += res
@@ -476,7 +502,7 @@ class NNrefinev1_0(nn.Module):
 
         # point embedding: [bnc] -> [bn'c]
         # channel embedding: [
-        if self.args.net in ['mlp']:
+        if self.args.net in ['mlp', 'mlpd']:
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)

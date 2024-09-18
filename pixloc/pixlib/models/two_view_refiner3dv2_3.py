@@ -185,6 +185,20 @@ class TwoViewRefiner3D(BaseModel):
                 loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q)
                 diff_loss = self.conf.optimizer.pose_lambda * torch.log(1 + torch.exp(10*(1- (loss_init + 1e-8) / (loss_gt + 1e-8))))
                 pred['pose_loss'].append(diff_loss)
+            elif self.conf.optimizer.pose_loss == 'triplet2':
+                loss_gt = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref, mask=mask,
+                                              W_ref_query=W_ref_q)
+                loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask,
+                                                W_ref_query=W_ref_q)
+                loss_fusion_gt = self.preject_fusion_loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref,
+                                                          mask=mask, W_ref_query=W_ref_q)
+                loss_fusion_init = self.preject_fusion_loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref,
+                                                            mask=mask,
+                                                            W_ref_query=W_ref_q)
+                diff_loss = self.conf.optimizer.pose_lambda * torch.log(
+                    1 + torch.exp(10 * (1 - (loss_init + loss_fusion_init + 1e-8) / (loss_gt + loss_fusion_gt + 1e-8))))
+                pred['pose_loss'].append(diff_loss)
+
             elif self.conf.optimizer.pose_loss == 'rr':
                 diff_loss = 0
                 for i, res in enumerate(opt.nnrefine.r_sum[2-i]):
@@ -234,6 +248,25 @@ class TwoViewRefiner3D(BaseModel):
         res, valid, w_unc, _, _ = opt.cost_fn.residuals(T_gt, *args)
         if mask is not None:
             valid &= mask
+
+        # compute the cost and aggregate the weights
+        cost = (res ** 2).sum(-1)
+        cost, w_loss, _ = opt.loss_fn(cost) # robust cost
+        loss = cost * valid.float()
+        if w_unc is not None:
+            loss = loss * w_unc
+
+        return torch.sum(loss, dim=-1)/(torch.sum(valid)+1e-6)
+
+    def preject_fusion_loss(self, opt, p3D, F_ref, F_query, T_gt, camera, mask=None, W_ref_query= None):
+        args = (camera, p3D, F_ref, F_query, W_ref_query)
+        _, valid, w_unc, F_r, _ = opt.cost_fn.residuals(T_gt, *args)
+        if mask is not None:
+            valid &= mask
+
+        p3D_ref = torch.nn.functional.normalize(T_gt * p3D, dim=-1)
+        p3D_ref_feat = torch.nn.functional.normalize(opt.nnrefine.linearp(p3D_ref), dim=-1)
+        res = F_r - p3D_ref_feat
 
         # compute the cost and aggregate the weights
         cost = (res ** 2).sum(-1)
