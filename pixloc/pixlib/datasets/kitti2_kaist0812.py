@@ -525,10 +525,10 @@ class _Dataset(Dataset):
             grd_image['points3D'] = key_points
 
             # # ramdom shift translation and ratation on yaw
-            # YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
+            YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
             # yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
             # R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
-            # TShiftRange = self.conf.trans_range # 5  # SIBCL: 5 meter, cvl: 10 meter
+            TShiftRange = self.conf.trans_range # 5  # SIBCL: 5 meter, cvl: 10 meter
             # T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
             # # T[0] = 0 # debug: no shift on lon
             # # T[1] = 0  # debug: no shift on lat
@@ -537,7 +537,7 @@ class _Dataset(Dataset):
             # shift = Pose.from_Rt(R_yaw, T)
             # q2r_init = shift @ q2r_gt
             # shift_gt = np.array([T[0], T[1], yaw])
-            # shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
+            shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
             # statistics
             mean = np.array([[-0.1917,  0.9250, 15.6600]], dtype=np.float32)
@@ -552,7 +552,7 @@ class _Dataset(Dataset):
                 'T_q2r_init': q2r_init.float(),
                 'T_q2r_gt': q2r_gt.float(),
                 # 'shift_gt': shift_gt,
-                # 'shift_range': shift_range,
+                'shift_range': shift_range,
                 'mean': mean,
                 'std': std,
                 'normal': normal,
