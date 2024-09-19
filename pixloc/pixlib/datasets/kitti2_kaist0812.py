@@ -264,13 +264,14 @@ class _Dataset(Dataset):
                 'T_w2cam': Pose.from_4x4mat(np.eye(4)).float(),  # already consider calibration in points3D
             }
 
-            sat_path = os.path.join('image/data', file_name)
-            frame = str(int(os.path.basename(sat_path)[:-4]) + random.choice([-9, -6, -3, 0, 3, 6, 9]))
-            frame = frame.zfill(10)
-            sat_path = os.path.join('image/data', frame + '.png')
-
-            # satellite map
-            SatMap_name = self.sat_pair.item().get(sat_path)
+            SatMap_name = None
+            while (SatMap_name == None):
+                sat_path = os.path.join('image/data', file_name)
+                frame = str(int(os.path.basename(sat_path)[:-4]) + random.choice([-9, -6, -3, 0, 3, 6, 9]))
+                frame = frame.zfill(10)
+                sat_path = os.path.join('image/data', frame + '.png')
+                # satellite map
+                SatMap_name = self.sat_pair.item().get(sat_path)
             extension = SatMap_name.split('.')[-1]
             SatMap_name = '.'.join(SatMap_name.split('.')[:-1])
 
