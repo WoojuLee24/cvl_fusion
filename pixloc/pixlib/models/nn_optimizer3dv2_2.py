@@ -76,6 +76,7 @@ class NNOptimizer3D(BaseOptimizer):
         kd=1.,
         ki=1.,
         multi_pose=1,
+        dropout=0.2,
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -272,6 +273,61 @@ class NNrefinev1_0(nn.Module):
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
 
+        elif self.args.net == 'mlp_l1_n64':
+            num_points = self.args.max_num_points3D
+            self.pooling = nn.Linear(num_points, 64)
+            self.cout *= 64
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net == 'mlp_n64':  # default
+            num_points = self.args.max_num_points3D
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(num_points, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 64)
+                                         )
+            self.cout *= 64
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net == 'mlpd':  # default
+            num_points = self.args.max_num_points3D #  + self.args.max_num_out_points3D
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(num_points, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(self.cout, 512),
+                                         nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(512, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Dropout(p=self.args.dropout),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
 
         elif self.args.net in ['mlp1.1', 'mlp1.2']:  # default
             self.mapping = nn.Sequential(nn.ReLU(inplace=False),
@@ -447,7 +503,7 @@ class NNrefinev1_0(nn.Module):
         elif 2-scale == 2:
             x = self.linear2(r)
 
-        if self.args.net in ['mlp', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
+        if self.args.net in ['mlp', 'mlp_l1_n64', 'mlp_n64', 'mlpd', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
