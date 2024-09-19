@@ -378,7 +378,7 @@ class _Dataset(Dataset):
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
             image.save('/ws/external/debug_images/kitti2/sat.png')
 
-        if 1:
+        if 0:
             fig = plt.figure(figsize=plt.figaspect(0.5))
             ax1 = fig.add_subplot(1, 2, 1)
             ax2 = fig.add_subplot(1, 2, 2)
