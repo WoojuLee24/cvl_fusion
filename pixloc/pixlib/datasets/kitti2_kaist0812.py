@@ -358,8 +358,11 @@ class _Dataset(Dataset):
             shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
             # statistics
-            mean = np.array([[-0.1917,  0.9250, 15.6600]], dtype=np.float32)
-            std = np.array([[6.9589,  0.8642, 11.5166]], dtype=np.float32)
+            # mean = np.array([[-0.1917,  0.9250, 15.6600]], dtype=np.float32)
+            # std = np.array([[6.9589,  0.8642, 11.5166]], dtype=np.float32)
+
+            mean = np.array([[-0.0191, 0.3659, 17.956]], dtype=np.float32)
+            std = np.array([[2.2201, 1.3551, 4.6558]], dtype=np.float32)
 
             # scene
             # scene = drive_dir[:4] + drive_dir[5:7] + drive_dir[8:10] + drive_dir[28:32] + image_no[:10]
@@ -533,8 +536,8 @@ class _Dataset(Dataset):
             shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
             # statistics
-            mean = np.array([[-0.1917,  0.9250, 15.6600]], dtype=np.float32)
-            std = np.array([[6.9589,  0.8642, 11.5166]], dtype=np.float32)
+            mean = np.array([[-0.0191, 0.3659, 17.956]], dtype=np.float32)
+            std = np.array([[2.2201, 1.3551, 4.6558]], dtype=np.float32)
 
             # scene
             normal = torch.tensor([[0., 1, 0.]])  # down, y axis of camera coordinate
