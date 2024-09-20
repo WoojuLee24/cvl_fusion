@@ -320,20 +320,20 @@ if __name__ == '__main__':
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     data_conf = {
-        'max_num_points3D': 77777,  # 5000, #both:3976,3D:5000
-        'force_num_points3D': False,
+        'max_num_points3D': 5000,  # 5000, #both:3976,3D:5000
+        'force_num_points3D': True,
         'train_batch_size': 1,
         'test_batch_size': 2,
         'num_workers': 0,
         'satmap_zoom': 18,
-        "sampling": 'distance', #'random' #
+        "sampling": 'random' #'distance', #
     }
 
     conf = {
         'normalize_dt': False,
         'optimizer': {'num_iters': 1, },
     }
-    dataset = 'kaist_kitti' # 'kaist_kitti' # 'kitti', 'kaist_kitti'
+    dataset = 'kitti2_gazebo' # 'kitti2_kaist0812' # 'kitti2_gazebo' # 'kitti2_kaist0812' #'kaist_kitti' # 'kaist_kitti' # 'kitti', 'kaist_kitti'
     ckpt = '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
     # '/ws/external/outputs/training/LM_LiDAR_itesr5_40x40_30/checkpoint_best.tar'
     # '/ws/external/outputs/training/NN3d/baseline_geometry.zsn2.l2_v1.0_resconcat_reproj2_jac_iters5/checkpoint_best.tar'
@@ -347,6 +347,12 @@ if __name__ == '__main__':
         dataset = Kitti(data_conf)
     elif dataset == 'kaist_kitti':
         from pixloc.pixlib.datasets.kaist_kitti import Kitti
+        dataset = Kitti(data_conf)
+    elif dataset == 'kitti2_kaist0812':
+        from pixloc.pixlib.datasets.kitti2_kaist0812 import Kitti
+        dataset = Kitti(data_conf)
+    elif dataset == 'kitti2_gazebo':
+        from pixloc.pixlib.datasets.kitti2_gazebo import Kitti
         dataset = Kitti(data_conf)
 
     torch.set_grad_enabled(False);

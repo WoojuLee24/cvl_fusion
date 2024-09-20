@@ -127,6 +127,13 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
         wandb_logger.wandb.log({'val/var errR': torch.var(errR)})
         wandb_logger.wandb.log({'val/median errR': torch.median(errR)})
 
+        # for demo
+        if loader.dataset.conf.name in ['kitti2_gazebo', 'kitti2_kaist0812']:
+            wandb_logger.wandb.log({'val/lat 5m': torch.sum(errlat <= 5) / errlat.size(0)})
+            wandb_logger.wandb.log({'val/lon 5m': torch.sum(errlong <= 5) / errlong.size(0)})
+            wandb_logger.wandb.log({'val/lat 10m': torch.sum(errlat <= 10) / errlat.size(0)})
+            wandb_logger.wandb.log({'val/lon 10m': torch.sum(errlong <= 10) / errlong.size(0)})
+
 
     return results
 
@@ -200,6 +207,13 @@ def test_basic(dataset, model, wandb_logger=None):
         wandb_logger.wandb.log({'test/mean errR': torch.mean(errR)})
         wandb_logger.wandb.log({'test/var errR': torch.var(errR)})
         wandb_logger.wandb.log({'test/median errR': torch.median(errR)})
+
+        # for demo
+        if dataset.conf.name in ['kitti2_gazebo', 'kitti2_kaist0812']:
+            wandb_logger.wandb.log({'test/lat 5m': torch.sum(errlat <= 5) / errlat.size(0)})
+            wandb_logger.wandb.log({'test/lon 5m': torch.sum(errlong <= 5) / errlong.size(0)})
+            wandb_logger.wandb.log({'test/lat 10m': torch.sum(errlat <= 10) / errlat.size(0)})
+            wandb_logger.wandb.log({'test/lon 10m': torch.sum(errlong <= 10) / errlong.size(0)})
 
     return
 
@@ -738,9 +752,9 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                 ######TEST######
                 ################
                 # test & save every epoch
-                if args.save_every_epoch:
-                    test_basic(dataset, model, wandb_logger)
-                    torch.cuda.empty_cache()  # should be cleared at the first iter
+                # if args.save_every_epoch:
+                #     test_basic(dataset, model, wandb_logger)
+                #     torch.cuda.empty_cache()  # should be cleared at the first iter
 
             if stop:
                 break

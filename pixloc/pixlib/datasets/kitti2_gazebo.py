@@ -353,8 +353,8 @@ class _Dataset(Dataset):
             shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
             # statistics
-            mean = np.array([[-0.1917, 0.9250, 15.6600]], dtype=np.float32)
-            std = np.array([[6.9589, 0.8642, 11.5166]], dtype=np.float32)
+            mean = np.array([[-0.1234, -0.0687, 3.5627]], dtype=np.float32)
+            std = np.array([[4.5850, 1.6556, 9.5614]], dtype=np.float32)
 
             data = {
                 'ref': sat_image,
@@ -533,10 +533,8 @@ class _Dataset(Dataset):
             shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
             # statistics
-            mean = np.array([[0.6607, -0.0052, 3.5180]], dtype=np.float32)
-            std = np.array([[5.3737, 1.3254, 8.3521]], dtype=np.float32)
-            # mean = np.array([[-6.9251, -4.0433, 95.3919]])
-            # std = np.array([[22.4492, 6.3773, 36.7385]])
+            mean = np.array([[-0.1234, -0.0687, 3.5627]], dtype=np.float32)
+            std = np.array([[4.5850, 1.6556, 9.5614]], dtype=np.float32)
 
             data = {
                 'ref': sat_image,
@@ -616,7 +614,7 @@ class _Dataset(Dataset):
             plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=0.5)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.savefig(f'/ws/external/debug_images/kitti2_gazebo/direction_test.png')
+            plt.savefig(f'/ws/external/debug_images/kitti2_gazebo/direction.png')
             plt.show()
             print(idx, file_name, pitch, roll)
             print(f'heading: {heading}, heading_pred: {heading_pred}')
