@@ -7,6 +7,7 @@ Created on Fri Dec  4 11:44:19 2020
 
 from pixloc.pixlib.datasets.base_dataset import BaseDataset
 import numpy as np
+import csv
 import os
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
@@ -22,22 +23,20 @@ from pixloc.pixlib.geometry import Camera, Pose
 from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
 from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
-from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
-import csv
 
-
-root_dir = "/ws/data/20240812" # your kitti dir
-satmap_zoom = 18 
-satmap_dir = 'satmap'  #'noised_satmap'
-grdimage_dir = 'raw_data'
-left_color_camera_dir = 'image/data'
+root_dir = "/ws/data/gazebo_kitti" # your kitti dir
+drive = 'lakepark1'  # 'lakepark1', 'lakepark2', 'lakepark3'
+satmap_dir = f'satmap'
+grdimage_dir = f'raw_data'
+debug_dir = f'debug_images'
+left_color_camera_dir = 'image_02/data'
 oxts_dir = 'oxts/data'
 vel_dir = 'velodyne_points/data'
 
-grd_ori_size = (480, 640) # different size in Kitti 375×1242, 370×1224,374×1238, and376×1241, but 375*1242 in calibration
-grd_process_size = (480, 640)
+grd_ori_size = (375, 1242) # different size in Kitti 375×1242, 370×1224,374×1238, and376×1241, but 375*1242 in calibration
+grd_process_size = (375, 1242) # (1200, 1920) # (384, 1248)
 satellite_ori_size = 1280
-meter_per_pixel = 0.25
+meter_per_pixel = 0.078
 
 ToTensor = transforms.Compose([
     transforms.ToTensor()])
@@ -45,16 +44,13 @@ ToTensor = transforms.Compose([
 class Kitti(BaseDataset):
     default_conf = {
         'two_view': True,
-        'log': 'duckpond_long_kaist_20240812_global',
         'max_num_points3D': 5000,
         'center_num_points3D': 1024,
         'force_num_points3D': False,
         'rot_range': 15,
         'trans_range': 5,
-        'satmap_zoom': 18,
         'sampling': 'random',
-        'pose_from': 'rt',
-        # 'project': 2,
+        'pose_from': 'aa',
     }
 
     def _init(self, conf):
@@ -147,30 +143,28 @@ def project_lidar_to_cam(velodyne, camera_k, lidar2cam_R, lidar2cam_T, img_size)
 
 class _Dataset(Dataset):
     def __init__(self, conf, split):
-        self.root = os.path.join(root_dir, conf.log)
+        self.root = root_dir
         self.conf = conf
-        self.satmap_zoom = self.conf.satmap_zoom
-        self.satmap_dir = 'satmap' # 'noised_satmap' if split=='train' else 'satmap'   # 'satmap_'+str(self.satmap_zoom)
+        self.satmap_dir = satmap_dir
+        self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair.npy'), allow_pickle=True)
 
         # read form txt files
         self.file_name = []
-        self.split = split
-
         if split == 'train':
+            split = split + '5_1'
+            self.split = split
             self.result_npy = None
-            # self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair_noise.npy'),  allow_pickle=True)
-            # txt_file_name = os.path.join(self.root, grdimage_dir, 'splits', self.split + '_noise.csv')
-            self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair.npy'),  allow_pickle=True)
-            txt_file_name = os.path.join(self.root, grdimage_dir, 'splits', self.split + '.csv')
-        else:
-            self.split = 'val'
-            self.sat_pair = np.load(os.path.join(self.root, grdimage_dir, 'groundview_satellite_pair.npy'),  allow_pickle=True)
-            self.result_npy = np.load(os.path.join(self.root, 'raw_data', 'predicted_groundview_satellite_pair_angle.npy'), allow_pickle=True)
-            txt_file_name = os.path.join(self.root, grdimage_dir, 'splits', self.split + '.csv')
+        elif split == 'val':
+            split = split + '5_1'
+            self.split = split
+            self.result_npy = np.load(os.path.join(self.root, 'recall_result', 'results5_angle.npy'), allow_pickle=True)
+        elif split == 'test':
+            split = 'val5_1'
+            self.split = split
+            self.result_npy = np.load(os.path.join(self.root, 'recall_result', 'results5_angle.npy'), allow_pickle=True)
 
-        self.txt_file_name = txt_file_name
-        # txt_file_name = os.path.join(self.root, grdimage_dir, 'splits', split+'_files.txt')
-        # txt_file_name = os.path.join(self.root, grdimage_dir, 'splits', self.split + '.csv')
+        # txt_file_name = os.path.join(self.root, grdimage_dir, 'split', split+'_files.txt')
+        txt_file_name = os.path.join(self.root, grdimage_dir, '2024_08_12', 'split', split + '.csv')
         with open(txt_file_name, 'r', newline='', encoding='utf-8') as file:
             reader = csv.reader(file)
             for row in reader:
@@ -192,16 +186,11 @@ class _Dataset(Dataset):
 
                 self.file_name.append(line)
 
-        if self.conf.part < 1.0:
-            print("part: ", self.conf.part)
-            indexes = int(len(self.file_name) * self.conf.part)
-            self.file_name = self.file_name[:indexes]
-
     def __len__(self):
         return len(self.file_name)
 
     def __getitem__(self, idx):
-        if self.split == 'train':
+        if self.split == 'train5_1':
             # read cemera k matrix from camera calibration files, day_dir is first 10 chat of file name
             file_name = self.file_name[idx]
             image_no = file_name
@@ -266,18 +255,17 @@ class _Dataset(Dataset):
 
             SatMap_name = None
             while (SatMap_name == None):
-                sat_path = os.path.join('image/data', file_name)
-                frame = str(int(os.path.basename(sat_path)[:-4]) + random.choice([-9, -6, -3, 0, 3, 6, 9]))
+                frame = str(int(os.path.basename(file_name)[:-4]) + random.choice([-2, -1, 0, 1, 2]))
                 frame = frame.zfill(10)
-                sat_path = os.path.join('image/data', frame + '.png')
+                file_name_noisy = os.path.join(file_name[:-14], frame + '.png')
                 # satellite map
-                SatMap_name = self.sat_pair.item().get(sat_path)
+                SatMap_name = self.sat_pair.item().get(file_name_noisy)
             extension = SatMap_name.split('.')[-1]
             SatMap_name = '.'.join(SatMap_name.split('.')[:-1])
 
             sat_gps = SatMap_name.split('_')
             sat_gps = [float(sat_gps[-3]), float(sat_gps[-1])]
-            SatMap_name = os.path.join(self.root, self.satmap_dir, '.'.join([SatMap_name, extension]))
+            SatMap_name = os.path.join(root_dir, self.satmap_dir, '.'.join([SatMap_name, extension]))
             with Image.open(SatMap_name, 'r') as SatMap:
                 sat_map = SatMap.convert('RGB')
                 sat_map = ToTensor(sat_map)
@@ -286,11 +274,12 @@ class _Dataset(Dataset):
             x_sg, y_sg = gps_func.angular_distance_to_xy_distance_v2(sat_gps[0], sat_gps[1], location[0],
                                                                      location[1])
 
-
             if self.conf.pose_from == 'aa':
-                grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]), np.zeros(3)) # grd_x:east, grd_y:north, grd_z:up
-                grd2cam = imu2camera@grd2imu
-                grd2sat = np.array([[1., 0, 0,0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])# grd z->-sat z; grd x->sat x, grd y->-sat y
+                grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]),
+                                       np.zeros(3))  # grd_x:east, grd_y:north, grd_z:up
+                grd2cam = imu2camera @ grd2imu
+                grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0],
+                                    [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
                 grd2sat = Pose.from_4x4mat(grd2sat)
                 q2r_gt = grd2sat @ (grd2cam.inv())
             elif self.conf.pose_from == 'rt':
@@ -332,6 +321,12 @@ class _Dataset(Dataset):
             key_points = torch.from_numpy(cam_3d).float()
             grd_image['points3D_type'] = 'lidar'
 
+            # max distance is 240 meter
+            # mask = key_points[:, 2] < 100.0
+            # key_points = key_points[mask]
+            if len(key_points) < 1000 or key_points == None:
+                return None
+
             num_diff = self.conf.max_num_points3D - len(key_points)
             if num_diff < 0:
                 # select max_num_points
@@ -346,7 +341,7 @@ class _Dataset(Dataset):
             YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
             yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
             R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
-            TShiftRange = self.conf.trans_range # 5  # SIBCL: 5 meter, cvl: 10 meter
+            TShiftRange = self.conf.trans_range  # 5  # SIBCL: 5 meter, cvl: 10 meter
             T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
             # T[0] = 0 # debug: no shift on lon
             # T[1] = 0  # debug: no shift on lat
@@ -358,12 +353,8 @@ class _Dataset(Dataset):
             shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
             # statistics
-            mean = np.array([[-0.1917,  0.9250, 15.6600]], dtype=np.float32)
-            std = np.array([[6.9589,  0.8642, 11.5166]], dtype=np.float32)
-
-            # scene
-            # scene = drive_dir[:4] + drive_dir[5:7] + drive_dir[8:10] + drive_dir[28:32] + image_no[:10]
-            normal = torch.tensor([[0., 1, 0.]])  # down, y axis of camera coordinate
+            mean = np.array([[-0.1917, 0.9250, 15.6600]], dtype=np.float32)
+            std = np.array([[6.9589, 0.8642, 11.5166]], dtype=np.float32)
 
             data = {
                 'ref': sat_image,
@@ -374,10 +365,9 @@ class _Dataset(Dataset):
                 'shift_range': shift_range,
                 'mean': mean,
                 'std': std,
-                'normal': normal,
             }
 
-        elif self.split == 'val':
+        elif self.split == 'val5_1':
             # read cemera k matrix from camera calibration files, day_dir is first 10 chat of file name
             file_name = self.file_name[idx]
             image_no = file_name
@@ -441,7 +431,10 @@ class _Dataset(Dataset):
             }
 
             # satellite map
-            SatMap_name = self.result_npy.item().get(os.path.join('raw_data/image/data', file_name))
+            folder_name = os.path.dirname(file_name)
+            file_name = os.path.basename(file_name)
+            grd_file = os.path.join('raw_data', folder_name, 'image_02/data', file_name)
+            SatMap_name = self.result_npy.item().get(grd_file)
             extension = SatMap_name[0].split('.')[-1]
             heading_pred = SatMap_name[-1]
             SatMap_name = '.'.join(SatMap_name[0].split('.')[:-1])
@@ -459,7 +452,7 @@ class _Dataset(Dataset):
             # get ground-view, satellite image shift
             x_sg, y_sg = gps_func.angular_distance_to_xy_distance_v2(sat_gps[0], sat_gps[1], location[0],
                                                                      location[1])
-
+            heading_pred = heading_pred - torch.pi / 2
             if self.conf.pose_from == 'aa':
                 grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]), np.zeros(3)) # grd_x:east, grd_y:north, grd_z:up
                 grd2cam = imu2camera@grd2imu
@@ -478,7 +471,8 @@ class _Dataset(Dataset):
 
             # apply offset on the q2r_gt
             heading_diff = heading - heading_pred
-            translation_offset = np.array([[np.cos(-heading_diff), -np.sin(-heading_diff), 0, x_sg], [np.sin(-heading_diff), np.cos(-heading_diff), 0, -y_sg],
+            translation_offset = np.array([[np.cos(-heading_diff), -np.sin(-heading_diff), 0, x_sg],
+                                           [np.sin(-heading_diff), np.cos(-heading_diff), 0, -y_sg],
                                            [0, 0, 1, 0], [0, 0, 0, 1]])
             translation_offset = Pose.from_4x4mat(translation_offset)
             q2r_gt = translation_offset @ q2r_init
@@ -507,6 +501,12 @@ class _Dataset(Dataset):
             key_points = torch.from_numpy(cam_3d).float()
             grd_image['points3D_type'] = 'lidar'
 
+            # max distance is 240 meter
+            # mask = key_points[:, 2] < 100.0
+            # key_points = key_points[mask]
+            if len(key_points) < 1000 or key_points == None:
+                return None
+
             num_diff = self.conf.max_num_points3D - len(key_points)
             if num_diff < 0:
                 # select max_num_points
@@ -517,27 +517,26 @@ class _Dataset(Dataset):
                 key_points = torch.cat([key_points, point_add], dim=0)
             grd_image['points3D'] = key_points
 
-            # # ramdom shift translation and ratation on yaw
+            # ramdom shift translation and ratation on yaw
             YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
             # yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
             # R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
-            TShiftRange = self.conf.trans_range # 5  # SIBCL: 5 meter, cvl: 10 meter
+            TShiftRange = self.conf.trans_range  # 5  # SIBCL: 5 meter, cvl: 10 meter
             # T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
-            # # T[0] = 0 # debug: no shift on lon
-            # # T[1] = 0  # debug: no shift on lat
+            # T[0] = 0 # debug: no shift on lon
+            # T[1] = 0  # debug: no shift on lat
             # T[2] = 0  # no shift on height
-            #
+
             # shift = Pose.from_Rt(R_yaw, T)
             # q2r_init = shift @ q2r_gt
             # shift_gt = np.array([T[0], T[1], yaw])
             shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
             # statistics
-            mean = np.array([[-0.1917,  0.9250, 15.6600]], dtype=np.float32)
-            std = np.array([[6.9589,  0.8642, 11.5166]], dtype=np.float32)
-
-            # scene
-            normal = torch.tensor([[0., 1, 0.]])  # down, y axis of camera coordinate
+            mean = np.array([[0.6607, -0.0052, 3.5180]], dtype=np.float32)
+            std = np.array([[5.3737, 1.3254, 8.3521]], dtype=np.float32)
+            # mean = np.array([[-6.9251, -4.0433, 95.3919]])
+            # std = np.array([[22.4492, 6.3773, 36.7385]])
 
             data = {
                 'ref': sat_image,
@@ -547,17 +546,14 @@ class _Dataset(Dataset):
                 # 'shift_gt': shift_gt,
                 'shift_range': shift_range,
                 'mean': mean,
-                'std': std,
-                'normal': normal,
+                'std': std
             }
 
-        # debug
         if 0:
             image = transforms.functional.to_pil_image(grd_left, mode='RGB')
-            image.save('/ws/external/debug_images/kitti2/grd.png')
+            image.save(f'/ws/data/kaist_mobile/debug_images/grd_{idx}.png')
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
-            image.save('/ws/external/debug_images/kitti2/sat.png')
-
+            image.save(f'/ws/data/kaist_mobile/debug_images/sat_{idx}.png')
         if 0:
             fig = plt.figure(figsize=plt.figaspect(0.5))
             ax1 = fig.add_subplot(1, 2, 1)
@@ -569,11 +565,11 @@ class _Dataset(Dataset):
             color_image1 = transforms.functional.to_pil_image(sat_map, mode='RGB')
             color_image1 = np.array(color_image1)
 
-            grd_2d, _ = grd_image['camera'].world2image(grd_image['points3D']) ##camera 3d to 2d
+            grd_2d, _ = grd_image['camera'].world2image(grd_image['points3D'])  ##camera 3d to 2d
             grd_2d = grd_2d.T
             for j in range(grd_2d.shape[1]):
-                cv2.circle(color_image0, (np.int32(grd_2d[0][j]), np.int32(grd_2d[1][j])), 1, (0, 255, 0),
-                       -1)
+                cv2.circle(color_image0, (np.int32(grd_2d[0][j]), np.int32(grd_2d[1][j])), 3, (0, 255, 0),
+                           -1)
 
             # # sat gt green
             # sat_3d = data['T_q2r_gt']*grd_image['points3D']
@@ -604,7 +600,7 @@ class _Dataset(Dataset):
             origin = torch.zeros(3)
             origin_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * origin)
             origin_2d_init, _ = data['ref']['camera'].world2image(data['T_q2r_init'] * origin)
-            direct = torch.tensor([0,0,6.])
+            direct = torch.tensor([0, 0, 6.])
             direct_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * direct)
             direct_2d_init, _ = data['ref']['camera'].world2image(data['T_q2r_init'] * direct)
             origin_2d_gt = origin_2d_gt.squeeze(0)
@@ -620,9 +616,224 @@ class _Dataset(Dataset):
             plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=0.5)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.savefig(f'/ws/external/debug_images/kitti2_kaist0812/{self.conf.log}_direction.png')
+            plt.savefig(f'/ws/external/debug_images/kitti2_gazebo/direction_test.png')
             plt.show()
-            print(idx,file_name, pitch, roll)
+            print(idx, file_name, pitch, roll)
+            print(f'heading: {heading}, heading_pred: {heading_pred}')
+        return data
+
+    def get_data(self, idx, mode='gt'):
+        # read cemera k matrix from camera calibration files, day_dir is first 10 chat of file name
+        file_name = self.file_name[idx]
+        image_no = file_name
+
+        # get calibration information, do not adjust image size change here
+        camera_k, camera_ex = read_calib(
+            os.path.join(self.root, grdimage_dir, 'calib_cam_to_cam.txt'), 'rect_00')
+        pose_camera_ex = Pose.from_4x4mat(camera_ex)
+        imu2lidar_R, imu2lidar_T, imu2lidar_H = read_sensor_rel_pose(
+            os.path.join(self.root, grdimage_dir, 'calib_imu_to_velo.txt'))
+        pose_imu2lidar = Pose.from_4x4mat(imu2lidar_H)
+        lidar2cam_R, lidar2cam_T, lidar2cam_H = read_sensor_rel_pose(
+            os.path.join(self.root, grdimage_dir, 'calib_velo_to_cam.txt'))
+        pose_lidar2cam = pose_camera_ex @ Pose.from_4x4mat(lidar2cam_H)
+        # computer the relative pose between imu to camera
+        imu2camera = pose_lidar2cam.compose(pose_imu2lidar)  # pose_imu2lidar.inv().compose(pose_lidar2cam.inv())
+        camera_center_loc = -imu2camera.transform(np.array([0., 0., 0.]))
+
+        # get location & rotation
+        oxts_file_name = os.path.join(self.root, grdimage_dir, image_no[:-14], oxts_dir,
+                                      image_no[-14:].lower().replace('.png', '.txt'))
+        with open(oxts_file_name, 'r') as f:
+            content = f.readline().split(' ')
+        location = [float(content[0]), float(content[1]), float(content[2])]
+        roll, pitch, heading = float(content[3]), float(content[4]), float(content[5])
+
+        # read lidar points
+        velodyne_file_name = os.path.join(self.root, grdimage_dir, image_no[:-14], vel_dir,
+                                          image_no[-14:].lower().replace('.png', '.bin'))
+        velodyne = np.fromfile(velodyne_file_name, dtype=np.float32).reshape(-1, 4)
+        velodyne[:, 3] = 1.0
+
+        # ground images, left color camera
+        left_img_name = os.path.join(self.root, grdimage_dir, image_no[:-14], left_color_camera_dir,
+                                     image_no[-14:].lower())
+        with Image.open(left_img_name, 'r') as GrdImg:
+            grd_left = GrdImg.convert('RGB')
+            grd_ori_H = grd_left.size[1]
+            grd_ori_W = grd_left.size[0]
+            # resize
+            grd_left = transforms.functional.resize(grd_left, grd_process_size)
+            # process camera_k for resize
+            camera_k[0] *= grd_process_size[1] / grd_ori_size[1]
+            camera_k[1] *= grd_process_size[0] / grd_ori_size[0]
+
+            grd_left = ToTensor(grd_left)
+
+        # project these lidar points to camera coordinate
+        # velodyne_local: lidar points (3D) which are visible to the image, in the velodyne coordinate system
+        _, cam_3d, _ = project_lidar_to_cam(velodyne, camera_k, lidar2cam_R, lidar2cam_T, (grd_ori_H, grd_ori_W))
+
+        # grd left
+        camera_para = (camera_k[0, 0], camera_k[1, 1], camera_k[0, 2], camera_k[1, 2])
+        camera = Camera.from_colmap(dict(
+            model='PINHOLE', params=camera_para,
+            width=int(grd_process_size[1]), height=int(grd_process_size[0])))
+        grd_image = {
+            'image': grd_left.float(),
+            'camera': camera.float(),
+            'T_w2cam': Pose.from_4x4mat(np.eye(4)).float(),  # already consider calibration in points3D
+        }
+
+        if self.conf.pose_from == 'aa':
+            grd2imu = Pose.from_aa(np.array([-roll, pitch, -heading]),
+                                   np.zeros(3))  # grd_x:east, grd_y:north, grd_z:up
+            grd2cam = imu2camera @ grd2imu
+            grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0],
+                                [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
+            grd2sat = Pose.from_4x4mat(grd2sat)
+            q2r_gt = grd2sat @ (grd2cam.inv())
+        elif self.conf.pose_from == 'rt':
+            R = np.array(
+                [[np.cos(-heading), -np.sin(-heading), 0], [np.sin(-heading), np.cos(-heading), 0], [0, 0, 1.]])
+            t = np.zeros(3)
+            grd2imu = Pose.from_Rt(R, t)
+            grd2cam = imu2camera @ grd2imu
+            grd2sat = np.array([[1., 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0],
+                                [0, 0, 0, 1]])  # grd z->-sat z; grd x->sat x, grd y->-sat y
+            grd2sat = Pose.from_4x4mat(grd2sat)
+            q2r_gt = grd2sat @ (grd2cam.inv())
+
+        if mode == 'gt':
+            # gt satellite map
+            SatMap_name = self.sat_pair.item().get(os.path.join(file_name))
+            extension = SatMap_name.split('.')[-1]
+            SatMap_name = '.'.join(SatMap_name.split('.')[:-1])
+
+            sat_gps = SatMap_name.split('_')
+            sat_gps = [float(sat_gps[-3]), float(sat_gps[-1])]
+            SatMap_name = os.path.join(root_dir, self.satmap_dir, '.'.join([SatMap_name, extension]))
+            with Image.open(SatMap_name, 'r') as SatMap:
+                sat_map = SatMap.convert('RGB')
+                sat_map = ToTensor(sat_map)
+
+            # get ground-view, satellite image shift
+            x_sg, y_sg = gps_func.angular_distance_to_xy_distance_v2(sat_gps[0], sat_gps[1], location[0],
+                                                                     location[1])
+            x_sg = int(x_sg / meter_per_pixel)
+            y_sg = int(-y_sg / meter_per_pixel)
+
+            # add the offset between camera and body to shift the center to query camera
+            cam_pixel = q2r_gt * camera_center_loc
+            cam_location_x = x_sg + satellite_ori_size / 2.0 + cam_pixel[0, 0]
+            cam_location_y = y_sg + satellite_ori_size / 2.0 + cam_pixel[0, 1]
+
+            # sat
+            camera = Camera.from_colmap(dict(
+                model='SIMPLE_PINHOLE',
+                params=(1 / meter_per_pixel, cam_location_x, cam_location_y, 0, 0, 0, 0, np.infty),
+                # np.infty for parallel projection
+                width=int(satellite_ori_size), height=int(satellite_ori_size)))
+            sat_image = {
+                'image': sat_map.float(),
+                'camera': camera.float(),
+                'T_w2cam': Pose.from_4x4mat(np.eye(4)).float()  # grd 2 sat in q2r, so just eye(4)
+            }
+        elif mode == 'pred':
+            # gt satellite map
+            file_dir = os.path.dirname(file_name)
+            png_name = os.path.basename(file_name)
+            file_path = os.path.join('raw_data/', file_dir, 'image_02/data', png_name)
+            SatMap_path = self.result_npy.item().get(file_path)[0]
+            SatMap_name = os.path.basename(SatMap_path)
+            extension = SatMap_name.split('.')[-1]
+            SatMap_name = '.'.join(SatMap_name.split('.')[:-1])
+
+            sat_gps = SatMap_name.split('_')
+            sat_gps = [float(sat_gps[-3]), float(sat_gps[-1])]
+            # SatMap_name = os.path.join(root_dir, self.satmap_dir, '.'.join([SatMap_name, extension]))
+            SatMap_name = os.path.join(root_dir, SatMap_path)
+            with Image.open(SatMap_name, 'r') as SatMap:
+                sat_map = SatMap.convert('RGB')
+                sat_map = ToTensor(sat_map)
+
+            # get ground-view, satellite image shift
+            x_sg, y_sg = gps_func.angular_distance_to_xy_distance_v2(sat_gps[0], sat_gps[1], location[0],
+                                                                     location[1])
+            x_sg = int(x_sg / meter_per_pixel)
+            y_sg = int(-y_sg / meter_per_pixel)
+
+            # add the offset between camera and body to shift the center to query camera
+            cam_pixel = q2r_gt * camera_center_loc
+            cam_location_x = x_sg + satellite_ori_size / 2.0 + cam_pixel[0, 0]
+            cam_location_y = y_sg + satellite_ori_size / 2.0 + cam_pixel[0, 1]
+
+            # sat
+            camera = Camera.from_colmap(dict(
+                model='SIMPLE_PINHOLE',
+                params=(1 / meter_per_pixel, cam_location_x, cam_location_y, 0, 0, 0, 0, np.infty),
+                # np.infty for parallel projection
+                width=int(satellite_ori_size), height=int(satellite_ori_size)))
+            sat_image = {
+                'image': sat_map.float(),
+                'camera': camera.float(),
+                'T_w2cam': Pose.from_4x4mat(np.eye(4)).float()  # grd 2 sat in q2r, so just eye(4)
+            }
+        # project to sat and find visible mask
+        cam_3d = cam_3d.T
+        _, visible = camera.world2image(torch.from_numpy(cam_3d).float())
+        cam_3d = cam_3d[visible]
+        key_points = torch.from_numpy(cam_3d).float()
+        grd_image['points3D_type'] = 'lidar'
+
+        # max distance is 240 meter
+        # mask = key_points[:, 2] < 100.0
+        # key_points = key_points[mask]
+        if len(key_points) < 1000 or key_points == None:
+            return None
+
+        num_diff = self.conf.max_num_points3D - len(key_points)
+        if num_diff < 0:
+            # select max_num_points
+            if self.conf.sampling == 'random':
+                sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
+                key_points = key_points[sample_idx]
+
+        elif num_diff > 0 and self.conf.force_num_points3D:
+            point_add = torch.ones((num_diff, 3)) * key_points[-1]
+            key_points = torch.cat([key_points, point_add], dim=0)
+        grd_image['points3D'] = key_points
+
+        # # ramdom shift translation and ratation on yaw
+        # YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
+        # yaw = 2 * YawShiftRange * np.random.random() - YawShiftRange
+        # R_yaw = torch.tensor([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
+        # TShiftRange = self.conf.trans_range  # 5  # SIBCL: 5 meter, cvl: 10 meter
+        # T = 2 * TShiftRange * np.random.rand((3)) - TShiftRange
+        # # T[0] = 0 # debug: no shift on lon
+        # # T[1] = 0  # debug: no shift on lat
+        # T[2] = 0  # no shift on height
+        #
+        # shift = Pose.from_Rt(R_yaw, T)
+        # q2r_init = shift @ q2r_gt
+        # shift_gt = np.array([T[0], T[1], yaw])
+        # shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
+
+        # statistics
+        mean = np.array([[0.6607, -0.0052, 3.5180]], dtype=np.float32)
+        std = np.array([[5.3737, 1.3254, 8.3521]], dtype=np.float32)
+
+        data = {
+            'ref': sat_image,
+            'query': grd_image,
+            # 'T_q2r_init': q2r_init.float(),
+            # 'T_q2r_gt': q2r_gt.float(),
+            'T_q2r': q2r_gt.float(),
+            # 'shift_gt': shift_gt,
+            # 'shift_range': shift_range,
+            'mean': mean,
+            'std': std
+        }
 
         return data
 
@@ -636,9 +847,10 @@ if __name__ == '__main__':
         'num_workers': 0,
     }
     dataset = Kitti(conf)
-    loader = dataset.get_data_loader('train', shuffle=True)  # or 'train' ‘val’
+    loader = dataset.get_data_loader('train', shuffle=False)  # or 'train' ‘val’
 
-    for _, data in zip(range(8), loader):
-        print(data)
-
+    for it, data in enumerate(loader):
+        if it == 52:
+            pass
+        print(it)
 

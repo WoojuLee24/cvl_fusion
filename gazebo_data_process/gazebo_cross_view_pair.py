@@ -5,10 +5,10 @@ import random
 root = "/ws/data/gazebo_kitti"
 grd_root = os.path.join(root, 'raw_data')
 sat_root= os.path.join(root, 'satmap')
-grd_image_dir_list = ['2024_07_02/lakepark1', '2024_07_02/lakepark2', '2024_07_02/lakepark3']
-sat_image_dir_list = ['2024_07_02/lakepark1', '2024_07_02/lakepark2', '2024_07_02/lakepark3']
-random_sat = ['fake1', 'fake2', 'fake3', 'fake4', 'gt']   # to noisy!
-# random_sat = ['gt']
+grd_image_dir_list = ['2024_08_12/lakepark1', '2024_08_12/lakepark2', '2024_08_12/lakepark3']
+sat_image_dir_list = ['2024_08_12/lakepark1', '2024_08_12/lakepark2', '2024_08_12/lakepark3']
+# random_sat = ['fake1', 'fake2', 'fake3', 'fake4', 'gt']   # to noisy!
+random_sat = ['gt']
 image_dir = 'image_02/data'
 oxts_dir = 'oxts/data'
 zoom = 18
