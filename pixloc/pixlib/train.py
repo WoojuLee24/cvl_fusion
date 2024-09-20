@@ -11,6 +11,7 @@ import os
 import copy
 from collections import defaultdict
 import numpy as np
+import time
 
 import matplotlib.pyplot as plt
 from omegaconf import OmegaConf
@@ -624,6 +625,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
             model.train()
             optimizer.zero_grad()
             data = batch_to_device(data, device, non_blocking=True)
+            # tick = time.time()
             pred = model(data)
             losses = loss_fn(pred, data)
             loss = torch.mean(losses['total'])
@@ -634,7 +636,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                 errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
                 errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
 
-            #tick = time.time()
+            # tick = time.time()
             do_backward = loss.requires_grad
             if args.distributed:
                 do_backward = torch.tensor(do_backward).float().to(device)
@@ -643,7 +645,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                 do_backward = do_backward > 0
             if do_backward:
                 loss.backward()
-                #logger.info(f'after backward, time{time.time()-tick}')
+                # logger.info(f'after backward, time{time.time()-tick}')
                 optimizer.step()
                 # lr_scheduler.step()
                 if conf.train.get('clip_grad', None):

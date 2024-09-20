@@ -99,7 +99,7 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     _, S, _ = new_xyz.shape
     group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
     sqrdists = square_distance(new_xyz, xyz)
-    # percent = (sqrdists < radius ** 2).float().sum() / 8192 / 8192 / 2
+    # percent = (sqrdists < radius ** 2).float().sum() / 5000 / 256 / 2
     # sqrt_percent = torch.sqrt(percent)
     group_idx[sqrdists > radius ** 2] = N
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
@@ -112,9 +112,9 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
 def sample_and_group2_1(npoint, radius, nsample, xyz, points, returnfps=False):
     """
     Input:
-        npoint:
-        radius:
-        nsample:
+        npoint: number of samples
+        radius: radius of local region
+        nsample: max sample number in local region
         xyz: input points position data, [B, N, 3]
         points: input points data, [B, N, D]
     Return:
@@ -123,9 +123,15 @@ def sample_and_group2_1(npoint, radius, nsample, xyz, points, returnfps=False):
     """
     B, N, C = xyz.shape
     S = npoint
-    # fps_idx = farthest_point_sample(xyz, npoint) # [B, npoint, C]
-    new_xyz = xyz # new_xyz = index_points(xyz, fps_idx)
-    idx = query_ball_point(radius, nsample, xyz, new_xyz)
+    if N == S: # no set abstraction
+        fps_idx = None
+        new_xyz = xyz # new_xyz = index_points(xyz, fps_idx)    # [B, S=npoint, 3]
+    else:
+        # fps_idx = farthest_point_sample(xyz, npoint) # [B, npoint, C] # too slow
+        fps_idx = torch.randint(low=0, high=N, size=(B, npoint))
+        new_xyz = index_points(xyz, fps_idx)  # [B, S=npoint, 3]
+
+    idx = query_ball_point(radius, nsample, xyz, new_xyz)   # [B, S=npoint, nsamples]
     grouped_xyz = index_points(xyz, idx) # [B, npoint, nsample, C]
     grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
 
@@ -161,7 +167,7 @@ def sample_and_group_all(xyz, points):
 
 
 class PointNetSetAbstraction2_1(nn.Module):
-    def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all):
+    def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all, set=False):
         super(PointNetSetAbstraction2_1, self).__init__()
         self.npoint = npoint
         self.radius = radius
@@ -200,33 +206,32 @@ class PointNetSetAbstraction2_1(nn.Module):
             # new_points =  F.relu(bn(conv(new_points)))
             new_points = F.relu(conv(new_points))
 
-        new_points = torch.max(new_points, 2)[0]
+        new_points = torch.max(new_points, 2)[0]    # max pooling in the grouped samples
         new_xyz = new_xyz.permute(0, 2, 1)
         return new_xyz, new_points
 
 
-class PointNetEncoder2_1(nn.Module):
-    def __init__(self, n_point, radius, nsample, mlp, mode, normal_channel=False, out_features=128):
-        super(PointNetEncoder2_1, self).__init__()
+class PointNetSSG(nn.Module):
+    def __init__(self, n_point, radius, nsample, mlp, normal_channel=False, in_features=None, out_features=128):
+        super(PointNetSSG, self).__init__()
 
         self.normal_channel = normal_channel
-        if mode in ['pointnet2.1', 'point2v2.4', 'point2v2.5', 'point2v2.6', 'point2v3.0']:
+        if in_features is not None:
+            in_channel = in_features
+        else:
             in_channel = 6 if normal_channel else 3
-            self.sa1 = PointNetSetAbstraction2_1(npoint=n_point, radius=radius, nsample=nsample, in_channel=in_channel,
-                                              mlp=mlp, group_all=False)
-            self.sa2 = PointNetSetAbstraction2_1(npoint=n_point, radius=radius*2, nsample=nsample, in_channel=32+3,
-                                              mlp=mlp, group_all=False)
-            self.sa3 = PointNetSetAbstraction2_1(npoint=n_point, radius=radius*4, nsample=nsample, in_channel=32+3,
-                                              mlp=mlp, group_all=False)
-            self.fc1 = nn.Linear(in_features=32+3, out_features=32)
-            self.fc2 = nn.Linear(in_features=32, out_features=32)
-            self.fc3 = nn.Linear(in_features=32, out_features=out_features)
+        self.sa1 = PointNetSetAbstraction2_1(npoint=n_point[0], radius=radius/2, nsample=nsample//2, in_channel=in_channel,
+                                          mlp=mlp, group_all=False)
+        self.sa2 = PointNetSetAbstraction2_1(npoint=n_point[1], radius=radius, nsample=nsample, in_channel=mlp[-1]+3,
+                                          mlp=mlp, group_all=False)
+        # self.sa3 = PointNetSetAbstraction2_1(npoint=n_point, radius=radius*4, nsample=nsample, in_channel=32+3,
+        #                                   mlp=mlp, group_all=False)
+        self.fc1 = nn.Linear(in_features=mlp[-1]+3, out_features=96)
+        self.drop1 = nn.Dropout(0.2)
+        self.fc2 = nn.Linear(in_features=96, out_features=96)
+        self.drop2 = nn.Dropout(0.2)
+        self.fc3 = nn.Linear(in_features=96, out_features=out_features)
 
-        # elif mode == 'pointnet2.1_msg':
-        #     in_channel = 3 if normal_channel else 0
-        #     self.sa1 = PointNetSetAbstractionMsg(npoint=n_point, radius_list=radius,
-        #                                          nsample_list=nsample, in_channel=in_channel,
-        #                                          mlp_list=mlp)
 
     def forward(self, xyz):
         xyz = xyz.transpose(2, 1)
@@ -238,12 +243,13 @@ class PointNetEncoder2_1(nn.Module):
             norm = None
         l1_xyz, l1_points = self.sa1(xyz, norm)
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        x = torch.cat([l3_xyz, l3_points], dim=1)
+        # l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
+        # x = torch.cat([l3_xyz, l3_points], dim=1)
+        x = torch.cat([l2_xyz, l2_points], dim=1)
         x = x.transpose(2, 1)
 
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = self.drop1(F.relu(self.fc1(x)))
+        x = self.drop2(F.relu(self.fc2(x)))
         x = self.fc3(x)
 
         return x

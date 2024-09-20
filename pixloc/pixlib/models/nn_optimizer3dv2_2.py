@@ -11,7 +11,7 @@ from ..geometry import losses  # noqa
 
 from .pointnet import PointNetEncoder, PointNetEncoder1_1
 from .pointnet2 import PointNetEncoder2
-from .pointnet2_1 import PointNetEncoder2_1
+from .pointnet2_1 import PointNetSSG
 from pixloc.pixlib.models.mlp_mixer import MLPMixer
 from pixloc.pixlib.models.simplevit import SimpleViT, Transformer, CrossTransformer
 from pixloc.pixlib.geometry.optimization import optimizer_step, optimizer_pstep
@@ -132,6 +132,10 @@ class NNOptimizer3D(BaseOptimizer):
             p3D = torch.nn.functional.normalize(p3D, dim=-1)
         elif self.conf.normalize_geometry == 'zsn2':
             p3D = (p3D - mean) / (std + 1e-6)
+        elif self.conf.normalize_geometry == 'pointnet2': # pointnet2
+            p3D = p3D - p3D.mean(dim=1, keepdim=True)
+            m = torch.max(torch.sqrt(torch.sum(p3D**2, dim=2, keepdim=True)), dim=1, keepdim=True)[0]
+            p3D = p3D / m
 
         for i in range(self.conf.num_iters):
             res, valid, w_unc, p3D_ref, F_ref2D, J = self.cost_fn.residual_jacobian3(T, *args)
@@ -142,6 +146,10 @@ class NNOptimizer3D(BaseOptimizer):
                 p3D_ref = torch.nn.functional.normalize(p3D_ref, dim=-1)
             elif self.conf.normalize_geometry == 'zsn2':
                 p3D_ref = (p3D_ref - mean) / (std + 1e-6)
+            elif self.conf.normalize_geometry == 'pointnet2':  # pointnet2
+                p3D_ref = p3D_ref - p3D_ref.mean(dim=1, keepdim=True)
+                m = torch.max(torch.sqrt(torch.sum(p3D_ref ** 2, dim=2, keepdim=True)), dim=1, keepdim=True)[0]
+                p3D_ref = p3D_ref / m
 
             if mask is not None:
                 valid &= mask
@@ -212,11 +220,21 @@ class NNrefinev1_0(nn.Module):
         self.initialize_rsum()
 
         # positional embedding
-        self.linearp = nn.Sequential(nn.Linear(3, 16),
-                                     nn.ReLU(inplace=False),
-                                     nn.Linear(16, pointc),
-                                     nn.ReLU(inplace=False),
-                                     nn.Linear(pointc, pointc))
+        if self.args.linearp == 'basic':
+            self.linearp = nn.Sequential(nn.Linear(3, 16),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(16, pointc),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(pointc, pointc))
+        elif self.args.linearp == 'pointnet_ssg':
+            linearp_property = [0.2, 32, [pointc, pointc]]  # radius, nsample, mlp
+            n_point = [self.args.max_num_points3D, self.args.max_num_points3D]
+            self.linearp = PointNetSSG(n_point,
+                                       linearp_property[0],
+                                       linearp_property[1],
+                                       linearp_property[2],
+                                       normal_channel=False,
+                                       out_features=pointc) # (B, N, output_dim)
 
         # channel projection
         if self.args.version in [1.0]:
@@ -265,6 +283,29 @@ class NNrefinev1_0(nn.Module):
                                          )
             self.cout *= 16
 
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
+        elif self.args.net in ['pointnet_ssg_n16', 'pointnet_ssg_n64']:
+            linearp_property = [self.args.radius, 64, [self.cout, self.cout]]  # radius, nsample, mlp
+            if self.args.net == 'pointnet_ssg_n16':
+                n_point = [256, 16]
+            elif self.args.net == 'pointnet_ssg_n64':
+                n_point = [256, 64]
+            self.pooling = PointNetSSG(n_point,
+                                       linearp_property[0],
+                                       linearp_property[1],
+                                       linearp_property[2],
+                                       normal_channel=True,
+                                       in_features=self.cout + 3,
+                                       out_features=self.cout)
+
+            self.cout *= n_point[-1]
             self.mapping = nn.Sequential(nn.ReLU(inplace=False),
                                          nn.Linear(self.cout, 128),
                                          nn.ReLU(inplace=False),
@@ -503,8 +544,14 @@ class NNrefinev1_0(nn.Module):
         elif 2-scale == 2:
             x = self.linear2(r)
 
-        if self.args.net in ['mlp', 'mlp_l1_n64', 'mlp_n64', 'mlpd', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
+        if self.args.net in ['mlp', 'mlp_l1_n64', 'mlp_n64',
+                             'mlpd', 'mlp1', 'mlp2', 'mlp2.1', 'mlp2.2']:
             x = x.contiguous().permute(0, 2, 1).contiguous()
+            x = self.pooling(x)
+            x = x.view(B, -1)
+            y = self.mapping(x)  # [B, 3]
+        elif self.args.net in ['pointnet_ssg_n64', 'pointnet_ssg_n16']:
+            x = torch.cat((p3D_ref.contiguous(), x), dim=-1)
             x = self.pooling(x)
             x = x.view(B, -1)
             y = self.mapping(x)  # [B, 3]
