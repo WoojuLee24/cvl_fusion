@@ -552,7 +552,7 @@ class _Dataset(Dataset):
             image.save(f'/ws/data/kaist_mobile/debug_images/grd_{idx}.png')
             image = transforms.functional.to_pil_image(sat_map, mode='RGB')
             image.save(f'/ws/data/kaist_mobile/debug_images/sat_{idx}.png')
-        if 1:
+        if 0:
             fig = plt.figure(figsize=plt.figaspect(0.5))
             ax1 = fig.add_subplot(1, 2, 1)
             ax2 = fig.add_subplot(1, 2, 2)
