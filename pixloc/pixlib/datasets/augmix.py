@@ -144,10 +144,10 @@ class AugMix(torch.nn.Module):
             "Solarize": (torch.linspace(255.0, 0.0, num_bins), False), # [255.0000, 226.6667, 198.3333, 170.0000, 141.6667, 113.3333,  85.0000, 56.6667,  28.3333,   0.0000]
             "AutoContrast": (torch.tensor(0.0), False),
             "Equalize": (torch.tensor(0.0), False),
-            # "Brightness": (torch.linspace(0.0, 0.9, num_bins), True), # [[0.0000, 0.1000, 0.2000, 0.3000, 0.4000, 0.5000, 0.6000, 0.7000, 0.8000, 0.9000]
-            # "Color": (torch.linspace(0.0, 0.9, num_bins), True),
-            # "Contrast": (torch.linspace(0.0, 0.9, num_bins), True),
-            # "Sharpness": (torch.linspace(0.0, 0.9, num_bins), True),
+            "Brightness": (torch.linspace(0.0, 0.9, num_bins), True), # [[0.0000, 0.1000, 0.2000, 0.3000, 0.4000, 0.5000, 0.6000, 0.7000, 0.8000, 0.9000]
+            "Color": (torch.linspace(0.0, 0.9, num_bins), True),
+            "Contrast": (torch.linspace(0.0, 0.9, num_bins), True),
+            "Sharpness": (torch.linspace(0.0, 0.9, num_bins), True),
             }
         return s
 

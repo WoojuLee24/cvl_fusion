@@ -23,7 +23,7 @@ from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
 from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
 from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
-
+from torchvision import transforms
 
 root_dir = "/ws/data/kitti-vo" # your kitti dir
 satmap_zoom = 18 
@@ -180,6 +180,9 @@ class _Dataset(Dataset):
             indexes = int(len(self.file_name) * self.conf.part)
             self.file_name = self.file_name[:indexes]
 
+        if self.conf.aug == 'color':
+            self.aug = transforms.ColorJitter((0.8, 1.2), (0.8, 1.2), (0.8, 1.2), (-0.1, 0.1))
+
     def __len__(self):
         return len(self.file_name)
 
@@ -222,6 +225,8 @@ class _Dataset(Dataset):
         left_img_name = os.path.join(self.root, grdimage_dir, drive_dir, left_color_camera_dir, image_no.lower())
         with Image.open(left_img_name, 'r') as GrdImg:
             grd_left = GrdImg.convert('RGB')
+            if self.conf.aug == 'color' and random.random() > 0.5:
+                grd_left = self.aug(grd_left)
             grd_ori_H = grd_left.size[1]
             grd_ori_W = grd_left.size[0]
             # resize
@@ -246,7 +251,6 @@ class _Dataset(Dataset):
             'camera': camera.float(),
             'T_w2cam': Pose.from_4x4mat(np.eye(4)).float(),  # already consider calibration in points3D
             'camera_h': torch.tensor(1.65),
-
         }
 
         # if self.conf.pose_from == 'aa':

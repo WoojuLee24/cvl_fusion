@@ -6,6 +6,7 @@ import torch
 from typing import Dict, List, Optional, Tuple
 import torchvision.transforms.functional as F
 from pixloc.pixlib.datasets.augmix import AugMix
+import random
 
 class AugMixDataset(torch.utils.data.Dataset):
     """Dataset wrapper to perform AugMix augmentation."""
@@ -35,11 +36,12 @@ class AugMixDataset(torch.utils.data.Dataset):
 
         data = self.dataset[i]
 
-        if self.args.aug == 'augmix1':
-            data['ref']['image'] = self.augmix(data['ref']['image'])
-            data['query']['image'] = self.augmix(data['query']['image'])
-        elif self.args.aug == 'augmix1.g':
-            data['query']['image'] = self.augmix(data['query']['image'])
+        if random.random() > 0.5:
+            if self.args.aug == 'augmix1':
+                data['ref']['image'] = self.augmix(data['ref']['image'])
+                data['query']['image'] = self.augmix(data['query']['image'])
+            elif self.args.aug == 'augmix1.g':
+                data['query']['image'] = self.augmix(data['query']['image'])
 
         return data
 
