@@ -126,30 +126,34 @@ class NNOptimizer3D(BaseOptimizer):
 
         mean = data['data']['mean']
         std = data['data']['std']
-        if self.conf.normalize_geometry == 'zsn':
+        if self.conf.normalize_geometry == 'zsn': # deprecated
             p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
-        elif self.conf.normalize_geometry == 'l2':
+        elif self.conf.normalize_geometry == 'l2': # deprecated
             p3D = torch.nn.functional.normalize(p3D, dim=-1)
-        elif self.conf.normalize_geometry == 'zsn2':
+        elif self.conf.normalize_geometry == 'zsn2': # deprecated
             p3D = (p3D - mean) / (std + 1e-6)
         elif self.conf.normalize_geometry == 'pointnet2': # pointnet2
             p3D = p3D - p3D.mean(dim=1, keepdim=True)
             m = torch.max(torch.sqrt(torch.sum(p3D**2, dim=2, keepdim=True)), dim=1, keepdim=True)[0]
             p3D = p3D / m
+        elif self.conf.normalize_geometry == 'zsn3':
+            p3D = (p3D - p3D.mean(dim=1, keepdim=True)) / (p3D.std(dim=1, keepdim=True) + 1e-6)
 
         for i in range(self.conf.num_iters):
             res, valid, w_unc, p3D_ref, F_ref2D, J = self.cost_fn.residual_jacobian3(T, *args)
 
-            if self.conf.normalize_geometry == 'zsn':
+            if self.conf.normalize_geometry == 'zsn':   # deprecated
                 p3D_ref = (p3D_ref - p3D_ref.mean()) / (p3D_ref.std() + 1e-6)
-            elif self.conf.normalize_geometry == 'l2':
+            elif self.conf.normalize_geometry == 'l2':  # deprecated
                 p3D_ref = torch.nn.functional.normalize(p3D_ref, dim=-1)
-            elif self.conf.normalize_geometry == 'zsn2':
+            elif self.conf.normalize_geometry == 'zsn2':    # deprecated
                 p3D_ref = (p3D_ref - mean) / (std + 1e-6)
             elif self.conf.normalize_geometry == 'pointnet2':  # pointnet2
                 p3D_ref = p3D_ref - p3D_ref.mean(dim=1, keepdim=True)
                 m = torch.max(torch.sqrt(torch.sum(p3D_ref ** 2, dim=2, keepdim=True)), dim=1, keepdim=True)[0]
                 p3D_ref = p3D_ref / m
+            elif self.conf.normalize_geometry == 'zsn3':
+                p3D_ref = (p3D_ref - p3D_ref.mean(dim=1, keepdim=True)) / (p3D_ref.std(dim=1, keepdim=True) + 1e-6)
 
             if mask is not None:
                 valid &= mask

@@ -15,6 +15,7 @@ from ..geometry import losses  # noqa
 from pixloc.pixlib.models.mlp_mixer import MLPMixer
 from pixloc.pixlib.models.simplevit import SimpleViT, Transformer, CrossTransformer
 from pixloc.pixlib.geometry.optimization import optimizer_step, optimizer_pstep
+# from pixloc.pixlib.models.sparse_conv import PointCloud3DConv
 
 logger = logging.getLogger(__name__)
 
@@ -126,22 +127,27 @@ class NNOptimizer3D(BaseOptimizer):
 
         mean = data['data']['mean']
         std = data['data']['std']
-        if self.conf.normalize_geometry == 'zsn':
+        if self.conf.normalize_geometry == 'zsn':  # deprecated
             p3D = (p3D - p3D.mean()) / (p3D.std() + 1e-6)
-        elif self.conf.normalize_geometry == 'l2':
+        elif self.conf.normalize_geometry == 'l2':  # deprecated
             p3D = torch.nn.functional.normalize(p3D, dim=-1)
-        elif self.conf.normalize_geometry == 'zsn2':
+        elif self.conf.normalize_geometry == 'zsn2':  # deprecated
             p3D = (p3D - mean) / (std + 1e-6)
+        elif self.conf.normalize_geometry == 'zsn3':
+            p3D = (p3D - p3D.mean(dim=1, keepdim=True)) / (p3D.std(dim=1, keepdim=True) + 1e-6)
 
         for i in range(self.conf.num_iters):
             res, valid, w_unc, p3D_ref, F_ref2D, J = self.cost_fn.residual_jacobian3(T, *args)
 
-            if self.conf.normalize_geometry == 'zsn':
+            if self.conf.normalize_geometry == 'zsn':   # deprecated
                 p3D_ref = (p3D_ref - p3D_ref.mean()) / (p3D_ref.std() + 1e-6)
-            elif self.conf.normalize_geometry == 'l2':
+            elif self.conf.normalize_geometry == 'l2':  # deprecated
                 p3D_ref = torch.nn.functional.normalize(p3D_ref, dim=-1)
-            elif self.conf.normalize_geometry == 'zsn2':
+            elif self.conf.normalize_geometry == 'zsn2':    # deprecated
                 p3D_ref = (p3D_ref - mean) / (std + 1e-6)
+            elif self.conf.normalize_geometry == 'zsn3':
+                p3D_ref = (p3D_ref - p3D_ref.mean(dim=1, keepdim=True)) / (p3D_ref.std(dim=1, keepdim=True) + 1e-6)
+
 
             if mask is not None:
                 valid &= mask
@@ -270,6 +276,27 @@ class NNrefinev1_0(nn.Module):
         # if self.args.pool == 'none':
         if self.args.net == 'mlp':  # default
             num_points = self.args.max_num_points3D + self.args.max_num_out_points3D
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(num_points, 256),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(256, 64),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(64, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+        elif self.args.net == 'spconv_mlp':
+            num_points = self.args.max_num_points3D + self.args.max_num_out_points3D
+
+            # self.spconv = PointCloud3DConv(input_channels=self.cout, output_channels=self.cout)
+
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
                                          nn.Linear(num_points, 256),
                                          nn.ReLU(inplace=False),
@@ -521,6 +548,12 @@ class NNrefinev1_0(nn.Module):
         # point embedding: [bnc] -> [bn'c]
         # channel embedding: [
         if self.args.net in ['mlp', 'mlpd', 'mlp_n64']:
+            x = x.contiguous().permute(0, 2, 1).contiguous()
+            x = self.pooling(x)
+            x = x.view(B, -1)
+            y = self.mapping(x)  # [B, 3]
+        elif self.args.net in ['spconv_mlp']:
+            # x = self.spconv(x, p3D_ref, )
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
