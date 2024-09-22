@@ -47,7 +47,7 @@ class Kitti(BaseDataset):
         'max_num_points3D': 5000,
         'max_num_out_points3D': 15000,
         'center_num_points3D': 1024,
-        'force_num_points3D': False,
+        'force_num_points3D': True,
         'rot_range': 15,
         'trans_range': 5,
         'satmap_zoom': 18,

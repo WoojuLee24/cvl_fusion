@@ -43,7 +43,7 @@ class TwoViewRefiner3D(BaseModel):
             'name': 'unet', #'s2dnet',
         },
         'optimizer': {
-            'name': 'nn_optimizer3dv2_2', # 'learned_optimizer', #'basic_optimizer',
+            'name': 'nn_optimizer3dv2_3', # 'learned_optimizer', #'basic_optimizer',
             'input': 'res',
             'pose_loss': 'triplet', # 'rr', 'none'
             'pose_lambda': 1,

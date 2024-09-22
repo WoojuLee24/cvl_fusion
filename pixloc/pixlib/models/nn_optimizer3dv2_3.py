@@ -9,9 +9,9 @@ from ..geometry import Camera, Pose
 from ..geometry.optimization import optimizer_step
 from ..geometry import losses  # noqa
 
-from .pointnet import PointNetEncoder, PointNetEncoder1_1
-from .pointnet2 import PointNetEncoder2
-from .pointnet2_1 import PointNetEncoder2_1
+# # from .pointnet import PointNetEncoder, PointNetEncoder1_1
+# from .pointnet2 import PointNetEncoder2
+# from .pointnet2_1 import PointNetEncoder2_1
 from pixloc.pixlib.models.mlp_mixer import MLPMixer
 from pixloc.pixlib.models.simplevit import SimpleViT, Transformer, CrossTransformer
 from pixloc.pixlib.geometry.optimization import optimizer_step, optimizer_pstep
@@ -50,7 +50,7 @@ class NNOptimizer3D(BaseOptimizer):
         pose_from='rt', # 'aa'
         pose_loss='triplet', # 'triplet', 'rr'
         pose_lambda=1,
-        main_loss='reproj2',    # reproj
+        main_loss='reproj',    # reproj
         coe_lat=1.,
         coe_lon=1.,
         coe_rot=1.,
@@ -219,14 +219,14 @@ class NNrefinev1_0(nn.Module):
                                          nn.Linear(16, pointc),
                                          nn.ReLU(inplace=False),
                                          nn.Linear(pointc, pointc))
-        elif self.args.linearp == 'pointnet2.1':
-            linearp_property = [0.2, 32, [32, 32, 32]]  # radius, nsample, mlp
-            self.linearp = PointNetEncoder2_1(self.args.max_num_points3D+self.args.max_num_out_points3D,
-                                              linearp_property[0],
-                                              linearp_property[1],
-                                              linearp_property[2],
-                                              self.args.linearp,
-                                              out_features=pointc)  # (B, N, output_dim)
+        # elif self.args.linearp == 'pointnet2.1':
+        #     linearp_property = [0.2, 32, [32, 32, 32]]  # radius, nsample, mlp
+        #     self.linearp = PointNetEncoder2_1(self.args.max_num_points3D+self.args.max_num_out_points3D,
+        #                                       linearp_property[0],
+        #                                       linearp_property[1],
+        #                                       linearp_property[2],
+        #                                       self.args.linearp,
+        #                                       out_features=pointc)  # (B, N, output_dim)
 
 
         # channel projection
