@@ -9,7 +9,7 @@ from ..geometry import Camera, Pose
 from ..geometry.optimization import optimizer_step
 from ..geometry import losses  # noqa
 
-# # from .pointnet import PointNetEncoder, PointNetEncoder1_1
+# from .pointnet import PointNetEncoder, PointNetEncoder1_1
 # from .pointnet2 import PointNetEncoder2
 # from .pointnet2_1 import PointNetEncoder2_1
 from pixloc.pixlib.models.mlp_mixer import MLPMixer
