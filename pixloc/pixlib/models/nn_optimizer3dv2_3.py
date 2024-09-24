@@ -15,7 +15,7 @@ from ..geometry import losses  # noqa
 from pixloc.pixlib.models.mlp_mixer import MLPMixer
 from pixloc.pixlib.models.simplevit import SimpleViT, Transformer, CrossTransformer
 from pixloc.pixlib.geometry.optimization import optimizer_step, optimizer_pstep
-# from pixloc.pixlib.models.sparse_conv import PointCloud3DConv
+from pixloc.pixlib.models.sparse_conv import SparseNet
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,11 @@ class NNOptimizer3D(BaseOptimizer):
         ki=1.,
         multi_pose=1,
         dropout=0.2,
+        max_num_points3D=5000,
+        max_num_out_points3D=15000,
+        max_num_features=5000,
+        voxel_shape=[400, 400, 10],
+        stride=[1, 1],
         # deprecated entries
         lambda_=0.,
         learned_damping=True,
@@ -292,13 +297,14 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
-        elif self.args.net == 'spconv_mlp':
-            num_points = self.args.max_num_points3D + self.args.max_num_out_points3D
-
-            # self.spconv = PointCloud3DConv(input_channels=self.cout, output_channels=self.cout)
+        elif self.args.net in ['smpconv', 'smpconv1.1']:
+            self.spconv = SparseNet(input_channels=self.cout, output_channels=self.cout,
+                                    mode=self.args.net,
+                                    max_num_features=self.args.max_num_features,
+                                    stride=self.args.stride)
 
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
-                                         nn.Linear(num_points, 256),
+                                         nn.Linear(self.args.max_num_features, 256),
                                          nn.ReLU(inplace=False),
                                          nn.Linear(256, 64),
                                          nn.ReLU(inplace=False),
@@ -313,6 +319,26 @@ class NNrefinev1_0(nn.Module):
                                          nn.ReLU(inplace=False),
                                          nn.Linear(32, self.yout),
                                          nn.Tanh())
+
+        elif self.args.net == 'smpconv1.1':
+            self.spconv = SparseNet(input_channels=self.cout, output_channels=self.cout,
+                                    mode=self.args.net,
+                                    max_num_features=self.args.max_num_features,
+                                    stride=self.args.stride)
+
+            self.pooling = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.args.max_num_features, 16)
+                                         )
+            self.cout *= 16
+
+            self.mapping = nn.Sequential(nn.ReLU(inplace=False),
+                                         nn.Linear(self.cout, 128),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(128, 32),
+                                         nn.ReLU(inplace=False),
+                                         nn.Linear(32, self.yout),
+                                         nn.Tanh())
+
         elif self.args.net == 'mlp_n64':  # default
             num_points = self.args.max_num_points3D + self.args.max_num_out_points3D
             self.pooling = nn.Sequential(nn.ReLU(inplace=False),
@@ -552,8 +578,8 @@ class NNrefinev1_0(nn.Module):
             x = self.pooling(x)
             x = x.view(B, -1)
             y = self.mapping(x)  # [B, 3]
-        elif self.args.net in ['spconv_mlp']:
-            # x = self.spconv(x, p3D_ref, )
+        elif self.args.net in ['smpconv', 'smpconv1.1']:
+            x = self.spconv(x, p3D_ref, spatial_shape=self.args.voxel_shape, batch_size=B)
             x = x.contiguous().permute(0, 2, 1).contiguous()
             x = self.pooling(x)
             x = x.view(B, -1)
