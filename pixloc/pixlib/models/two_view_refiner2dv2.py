@@ -122,7 +122,7 @@ class TwoViewRefiner2D(BaseModel):
         b, c, h, w = data['query']['image'].size()
         data['query']['points3D'] = p3d_grd.detach().reshape(-1, h*w, c)
 
-        if 0:
+        if 1:
             r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(), data['ref']['camera'].cuda(),
                                          data['query']['image'], data['ref']['image'], data)
 
@@ -161,7 +161,7 @@ class TwoViewRefiner2D(BaseModel):
             F_r2q, mask_r2q, p3d_grd, p3d_g2s = project_map_to_grd(T_init, cam_q, cam_ref, F_q, F_ref, data)
             F_q2r, mask_q2r, p3d_s, p3d_s2g = project_grd_to_map(T_init, cam_q, cam_ref, F_q, F_ref, data)
 
-            if 0:
+            if 1:
                 F_r2q, mask_r2q, p3d_grd, p3d_g2s = project_map_to_grd(data['T_q2r_gt'], cam_q, cam_ref, F_q, F_ref, data)
                 F_q2r, mask_q2r, p3d_s, p3d_s2g = project_grd_to_map(data['T_q2r_gt'], cam_q, cam_ref, F_q, F_ref, data)
 

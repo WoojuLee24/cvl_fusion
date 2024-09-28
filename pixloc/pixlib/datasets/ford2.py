@@ -11,6 +11,8 @@ import os
 from PIL import Image, ImageFile
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
+
 import torch
 from matplotlib import pyplot as plt
 import ford_data_process.gps_coord_func as gps_func
@@ -108,9 +110,10 @@ class FordAV(BaseDataset):
         'two_view': True,
         'seed': 0,
         'max_num_points3D': 5000, # 15000,
-        'force_num_points3D': False,
+        'force_num_points3D': True,
         'rot_range': 15,
         'trans_range': 5,
+        'pose_from': 'aa',
     }
 
     def _init(self, conf):
@@ -247,25 +250,43 @@ class _Dataset(Dataset):
             sat_map = SatMap.convert('RGB')
             sat_map = ToTensor(sat_map)
 
+        # ford2 style
         # ned: x: north, y: east, z:down
-        ned2sat = np.array([[0,1,0,0],[-1,0,0,0],[0,0,1,0],[0,0,0,1]]) #ned y->sat x; ned -x->sat y, ned z->sat z
+        ned2sat = np.array(
+            [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])  # ned y->sat x; ned -x->sat y, ned z->sat z
         ned2sat = Pose.from_4x4mat(ned2sat).float()
-        # sat coordinate to ground(east=z/south=x) coordinate , then, to camera coordinate
-        body2ned = Pose.from_aa(np.array([roll, pitch, heading]), np.zeros(3)).float()
+        if self.conf.pose_from == 'aa':
+            # sat coordinate to ground(east=z/south=x) coordinate , then, to camera coordinate
+            body2ned = Pose.from_aa(np.array([roll, pitch, heading]), np.zeros(3)).float()
+        elif self.conf.pose_from == 'rt':
+            R = np.array([[np.cos(heading), -np.sin(heading), 0], [np.sin(heading), np.cos(heading), 0], [0, 0, 1.]])
+            t = np.zeros(3)
+            body2ned = Pose.from_Rt(R, t).float()
+
         # cam->body->ned->sat without translate
         R_fl2body = self.FL_relPose_body.copy()
-        R_fl2body[:,3] = 0.
+        # R_fl2body[:, 3] = 0.
         cam2sat = ned2sat @ body2ned @ Pose.from_4x4mat(R_fl2body).float()
-
 
         # add the offset between camera and body to shift the center to query camera
         cam2sat_ori = ned2sat @ body2ned @ Pose.from_4x4mat(self.FL_relPose_body).float()
-        cam_location = cam2sat_ori*torch.tensor([0.,0.,0.])/meter_per_pixel
-        cam_location_x = dx_pixel_gps + satellite_ori_size / 2.0 + cam_location[0,0]
-        cam_location_y = dy_pixel_gps + satellite_ori_size / 2.0 + cam_location[0,1]
+        cam_location = cam2sat_ori * torch.tensor([0., 0., 0.]) # / meter_per_pixel
+        # cam_location_x = dx_pixel_gps + satellite_ori_size / 2.0 + cam_location[0,0]
+        # cam_location_y = dy_pixel_gps + satellite_ori_size / 2.0 + cam_location[0,1]
+        cam_location_x = satellite_ori_size / 2.0 #+ cam_location[0, 0]
+        cam_location_y = satellite_ori_size / 2.0 #+ cam_location[0, 1]
         camera = Camera.from_colmap(dict(
-            model='SIMPLE_PINHOLE', params=(1 / meter_per_pixel, cam_location_x, cam_location_y, 0,0,0,0,np.infty),#np.infty for parallel projection
+            model='SIMPLE_PINHOLE',
+            params=(1 / meter_per_pixel, cam_location_x, cam_location_y, 0, 0, 0, 0, np.infty),
+            # np.infty for parallel projection
             width=int(satellite_ori_size), height=int(satellite_ori_size)))
+
+        # apply offset on the q2r_gt
+        translation_offset = np.array([[1., 0, 0, dx], [0, 1, 0, -dy], [0, 0, 1, 0],
+                                       [0, 0, 0, 1]], dtype=np.float32)
+        translation_offset = Pose.from_4x4mat(translation_offset)
+        cam2sat.t[-1] = 0
+        cam2sat = translation_offset @ cam2sat
 
         if not gt_from_gps:
             cam_location_x = dx_pixel_ned + satellite_ori_size / 2.0 + cam_location[0,0]
@@ -356,7 +377,7 @@ class _Dataset(Dataset):
         # statistics
         mean = np.array([[-0.9385, -1.5508, 39.8347]], dtype=np.float32)
         std = np.array([[13.8230, 3.2336, 20.3449]], dtype=np.float32)
-        normal = torch.tensor([[0., 0, 1]])  # down, z axis of body coordinate
+        normal = torch.tensor([[0., 1, 0]])  # down, z axis of body coordinate # fix
 
         data = {
             'ref': sat_image,
@@ -370,18 +391,21 @@ class _Dataset(Dataset):
             'normal': normal,
         }
 
+        # sat_3d = data['T_q2r_gt'] * data['query']['points3D']
+        # sat_2d, _ = data['ref']['camera'].world2image(sat_3d)
+
         # debug
         if 0:
             #show sat imge
             color_image0 = transforms.functional.to_pil_image(data['ref']['image'], mode='RGB')
-            color_image0.save('/ws/external/debug_images/ford/sat.png')
+            color_image0.save('/ws/external/debug_images/ford2/sat.png')
             color_image0 = np.array(color_image0)
             plt.imshow(color_image0)
             plt.show()
 
             # show grd image
             color_image1 = transforms.functional.to_pil_image(data['query']['image'], mode='RGB')
-            color_image1.save('/ws/external/debug_images/ford/grd.png')
+            color_image1.save('/ws/external/debug_images/ford2/grd.png')
             color_image1 = np.array(color_image1)
             plt.imshow(color_image1)
             plt.show()
@@ -397,8 +421,20 @@ class _Dataset(Dataset):
             # color_image4 = np.array(color_image4)
             # plt.imshow(color_image4)
             # plt.show()
+        # if 1:
+        #     r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'],
+        #                                                        data['ref']['camera'],
+        #                                                        data['query']['image'], data['ref']['image'], data)
+        #
+        #     from pixloc.visualization.viz_2d import imsave
+        #     path = 'debug_images/ford2'  # 'visualizations/dense'
+        #     imsave(q2r_img[0], f'/ws/external/{path}', '0q2r')
+        #     imsave(data['query']['image'][0], f'/ws/external/{path}', '0grd')
+        #     imsave(data['ref']['image'][0], f'/ws/external/{path}', '0sat')
+        #     imsave(r2q_img[0], f'/ws/external/{path}', '1r2q')
 
         if 0:
+            # world2image
             color_image = transforms.functional.to_pil_image(data['ref']['image'], mode='RGB')
             color_image = np.array(color_image)
             if 1:
@@ -441,7 +477,49 @@ class _Dataset(Dataset):
             plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=5)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.savefig('/ws/external/debug_images/ford/direction.png')
+            plt.savefig('/ws/external/debug_images/ford2/direction_project.png')
+            plt.show()
+
+            # world2image2
+            color_image = transforms.functional.to_pil_image(data['ref']['image'], mode='RGB')
+            color_image = np.array(color_image)
+            # sat gt green
+            sat_3d = data['T_q2r_gt'] * data['query']['points3D']
+            sat_2d, _ = data['ref']['camera'].world2image(sat_3d)  ##camera 3d to 2d
+            sat_2d = sat_2d.T
+            for j in range(sat_2d.shape[1]):
+                cv2.circle(color_image, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (0, 255, 0),
+                           -1)
+
+            # sat init red
+            sat_3d = data['T_q2r_init'] * data['query']['points3D']
+            sat_2d, _ = data['ref']['camera'].world2image(sat_3d)  ##camera 3d to 2d
+            sat_2d = sat_2d.T
+            for j in range(sat_2d.shape[1]):
+                cv2.circle(color_image, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (255, 0, 0),
+                           -1)
+
+            plt.imshow(color_image)
+            origin = torch.zeros(3)
+            origin_2d_gt, _ = data['ref']['camera'].world2image2(data['T_q2r_gt'] * origin)
+            origin_2d_init, _ = data['ref']['camera'].world2image2(data['T_q2r_init'] * origin)
+            direct = torch.tensor([0, 0, 6.])
+            direct_2d_gt, _ = data['ref']['camera'].world2image2(data['T_q2r_gt'] * direct)
+            direct_2d_init, _ = data['ref']['camera'].world2image2(data['T_q2r_init'] * direct)
+            origin_2d_gt = origin_2d_gt.squeeze(0)
+            origin_2d_init = origin_2d_init.squeeze(0)
+            direct_2d_gt = direct_2d_gt.squeeze(0)
+            direct_2d_init = direct_2d_init.squeeze(0)
+
+            # plot the init direction of the body frame
+            plt.scatter(x=origin_2d_init[0], y=origin_2d_init[1], c='r', s=5)
+            plt.quiver(origin_2d_init[0], origin_2d_init[1], direct_2d_init[0] - origin_2d_init[0],
+                       origin_2d_init[1] - direct_2d_init[1], color=['r'], scale=None)
+            # plot the gt direction of the body frame
+            plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=5)
+            plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
+                       origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
+            plt.savefig('/ws/external/debug_images/ford2/direction_project2.png')
             plt.show()
 
             # grd images
@@ -458,7 +536,7 @@ class _Dataset(Dataset):
                     cv2.circle(color_image1, (np.int32(grd_2d[0][j]), np.int32(grd_2d[1][j])), 5, (0, 255, 0),
                                -1)
             ax1.imshow(color_image1)
-            plt.savefig('/ws/external/debug_images/ford/grd_lidar.png')
+            plt.savefig('/ws/external/debug_images/ford2/grd_lidar.png')
             plt.show()
             print(self.file_name[idx][:-1])
 

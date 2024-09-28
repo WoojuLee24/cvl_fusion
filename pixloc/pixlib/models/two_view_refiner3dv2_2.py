@@ -15,6 +15,8 @@ from pixloc.pixlib.models import get_model
 from pixloc.pixlib.models.utils import masked_mean, merge_confidence_map, extract_keypoints
 from pixloc.pixlib.geometry.losses import scaled_barron
 from pixloc.pixlib.geometry.wrappers import Camera, Pose
+from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
+
 from pixloc.visualization.viz_2d import features_to_RGB,plot_images,plot_keypoints
 from pixloc.pixlib.utils.tensor import map_tensor
 import matplotlib as mpl
@@ -109,6 +111,26 @@ class TwoViewRefiner3D(BaseModel):
         pred['T_q2r_opt'] = []
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
+
+        if 0:
+            r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(),
+                                                               data['ref']['camera'].cuda(),
+                                                               data['query']['image'], data['ref']['image'], data)
+
+            q2r_img, q2r_mask, _, _ = project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
+                                                         data['ref']['camera'].cuda(),
+                                                         data['query']['image'], data['ref']['image'], data)
+
+            from pixloc.visualization.viz_2d import imsave
+            path = 'debug_images/kitti_faa'  # 'visualizations/dense'
+            imsave(q2r_img[0], f'/ws/external/{path}', '0q2r')
+            imsave(data['query']['image'][0], f'/ws/external/{path}', '0grd')
+            imsave(data['ref']['image'][0], f'/ws/external/{path}', '0sat')
+            imsave(r2q_img[0], f'/ws/external/{path}', '1r2q')
+            imsave(data['query']['image'][0], f'/ws/external/{path}', '1grd')
+
+            imsave(data['ref']['image'][0], f'/ws/external/{path}', '1sat')
+            # print(f"roll: {data['roll']}, pitch: {data['pitch']}")
 
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
