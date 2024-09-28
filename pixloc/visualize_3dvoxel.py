@@ -122,6 +122,11 @@ def Val(val_loader, save_path, best_result):
         imsave(grd_proj_color_init.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'grd_proj_color_init')
         imsave(grd_proj_point_init.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'grd_proj_point_init')
 
+        sat_color_init = project(F_r_init, data['ref']['image'], p2D_r_init)
+        imsave(sat_color_init.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'sat_color_init')
+        sat_color_gt = project(F_r_gt, data['ref']['image'], p2D_r_init)
+        imsave(sat_color_gt.permute(2, 0, 1), '/ws/external/visualizations/3dvoxel', 'sat_color_gt')
+
 
         # p2D_r_gt, valid_r = cam_r.world2image(p3D_r_gt)
         # grd_proj = torch.zeros((H*W, 3), device=p3D_q.device)
@@ -152,7 +157,7 @@ def Val(val_loader, save_path, best_result):
 def project(F_q, F_ref2D, p2D_r):
     B, C, H, W = F_ref2D.size()
 
-    grd_proj = torch.zeros((H*W, C), device=F_ref2D.device)
+    grd_proj = torch.ones((H*W, C), device=F_ref2D.device)
     xys = p2D_r[0].long()  # p2D_r_gt[0].to(torch.int32) # (N, 2)
     if isinstance(F_q, torch.Tensor):
         colors = F_q[0]  # (N, 3)
@@ -211,6 +216,7 @@ if __name__ == '__main__':
 
     data_conf = {
         'max_num_points3D': 77777,  # 5000, #both:3976,3D:5000
+        'max_num_out_points3D': 777777,
         'force_num_points3D': False,
         'train_batch_size': 1,
         'test_batch_size': 1,
@@ -227,7 +233,8 @@ if __name__ == '__main__':
 
         dataset = FordAV(data_conf)
     else:
-        from pixloc.pixlib.datasets.kitti import Kitti
+        # from pixloc.pixlib.datasets.kitti import Kitti
+        from pixloc.pixlib.datasets.kitti3 import Kitti
 
         dataset = Kitti(data_conf)
 
