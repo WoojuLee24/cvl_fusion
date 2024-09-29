@@ -64,6 +64,7 @@ class TwoViewRefiner3D(BaseModel):
         'clamp_error': 7777,
         'normalize_features': True,
         'normalize_dt': True,
+        'debug': False,
 
         # deprecated entries
         'init_target_offset': None,
@@ -112,7 +113,9 @@ class TwoViewRefiner3D(BaseModel):
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
 
-        if 0:
+        if self.conf.debug:
+            path = 'debug_images/ford3_aa'  # 'visualizations/dense'
+
             r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(),
                                                                data['ref']['camera'].cuda(),
                                                                data['query']['image'], data['ref']['image'], data)
@@ -122,7 +125,6 @@ class TwoViewRefiner3D(BaseModel):
                                                          data['query']['image'], data['ref']['image'], data)
 
             from pixloc.visualization.viz_2d import imsave
-            path = 'debug_images/kitti_faa'  # 'visualizations/dense'
             imsave(q2r_img[0], f'/ws/external/{path}', '0q2r')
             imsave(data['query']['image'][0], f'/ws/external/{path}', '0grd')
             imsave(data['ref']['image'][0], f'/ws/external/{path}', '0sat')
@@ -131,6 +133,27 @@ class TwoViewRefiner3D(BaseModel):
 
             imsave(data['ref']['image'][0], f'/ws/external/{path}', '1sat')
             # print(f"roll: {data['roll']}, pitch: {data['pitch']}")
+
+            p3D_q = data['query']['points3D']
+            p3D_r_gt = data['T_q2r_gt'] * p3D_q
+            p3D_r_init = data['T_q2r_init'] * p3D_q
+
+            cam_r = data['ref']['camera']
+            p2D_q, valid_q = data['query']['camera'].world2image(data['query']['T_w2cam'] * p3D_q)
+            p2D_r_gt, valid_r = cam_r.world2image(p3D_r_gt)
+            p2D_r_init, _ = cam_r.world2image(p3D_r_init)
+
+            from pixloc.pixlib.geometry.interpolation import interpolate_tensor_bilinear
+            from pixloc.visualize_3dvoxel import project
+            F_q, _ = interpolate_tensor_bilinear(data['query']['image'], p2D_q)
+            F_r_gt, _ = interpolate_tensor_bilinear(data['ref']['image'], p2D_r_gt)
+
+            grd_proj_color = project(F_q, data['ref']['image'], p2D_r_gt)
+            sat_color_gt = project(F_r_gt, data['ref']['image'], p2D_r_gt)
+
+            imsave(grd_proj_color.permute(2, 0, 1), f'/ws/external/{path}', 'grd_proj_color_gt')
+            imsave(sat_color_gt.permute(2, 0, 1), f'/ws/external/{path}', 'sat_color_gt')
+
 
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
