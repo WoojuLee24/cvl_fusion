@@ -109,12 +109,12 @@ class FordAV(BaseDataset):
     default_conf = {
         'two_view': True,
         'seed': 0,
-        'max_num_points3D': 5000, # 15000,
+        'max_num_points3D': 5000,
+        'max_num_out_points3D': 15000,
         'force_num_points3D': True,
         'rot_range': 15,
         'trans_range': 5,
-        'pose_from': 'aa',
-        'debug': False,
+        'pose_from': 'rt',
     }
 
     def _init(self, conf):
@@ -199,6 +199,18 @@ class _Dataset(Dataset):
     def __len__(self):
         return len(self.file_name)
 
+    def sample_points(self, key_points, max_points):
+        num_diff = max_points - len(key_points)
+        if num_diff < 0:
+            sample_idx = np.random.choice(range(len(key_points)), max_points)
+            key_points = key_points[sample_idx]
+        elif num_diff > 0:
+            point_add = torch.ones((num_diff, 3)) * key_points[-1]
+            key_points = torch.cat([key_points, point_add], dim=0)
+
+        return key_points
+
+
     def __getitem__(self, idx):
         ###############################
         satellite_img = os.path.split(self.satellite_dict[self.match_pair[idx]])[-1].split("_")
@@ -251,49 +263,13 @@ class _Dataset(Dataset):
             sat_map = SatMap.convert('RGB')
             sat_map = ToTensor(sat_map)
 
-
-        # ford1 style debugging
-        if self.conf.debug:
-            # ned: x: north, y: east, z:down
-            ned2sat = np.array(
-                [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])  # ned y->sat x; ned -x->sat y, ned z->sat z
-            ned2sat = Pose.from_4x4mat(ned2sat).float()
-            # sat coordinate to ground(east=z/south=x) coordinate , then, to camera coordinate
-            body2ned = Pose.from_aa(np.array([roll, pitch, heading]), np.zeros(3)).float()
-            # cam->body->ned->sat without translate
-            R_fl2body = self.FL_relPose_body.copy()
-            R_fl2body[:, 3] = 0.
-            cam2sat = ned2sat @ body2ned @ Pose.from_4x4mat(R_fl2body).float()
-
-            # add the offset between camera and body to shift the center to query camera
-            cam2sat_ori = ned2sat @ body2ned @ Pose.from_4x4mat(self.FL_relPose_body).float()
-            cam_location = cam2sat_ori * torch.tensor([0., 0., 0.]) / meter_per_pixel
-            cam_location_x = dx_pixel_gps + satellite_ori_size / 2.0 + cam_location[0, 0]
-            cam_location_y = dy_pixel_gps + satellite_ori_size / 2.0 + cam_location[0, 1]
-            camera = Camera.from_colmap(dict(
-                model='SIMPLE_PINHOLE',
-                params=(1 / meter_per_pixel, cam_location_x, cam_location_y, 0, 0, 0, 0, np.infty),
-                # np.infty for parallel projection
-                width=int(satellite_ori_size), height=int(satellite_ori_size)))
-
-            print(f'0,0,0 to {camera.world2image(cam2sat * torch.tensor([0., 0., 0.]))}')
-            print(f'10,0,0 to {camera.world2image(cam2sat * torch.tensor([10., 0., 0.]))}')
-            print(f'20,-20,0 to {camera.world2image(cam2sat * torch.tensor([20., -20., 0.]))}')
-
-
         # ford2 style
         # ned: x: north, y: east, z:down
         ned2sat = np.array(
             [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])  # ned y->sat x; ned -x->sat y, ned z->sat z
         ned2sat = Pose.from_4x4mat(ned2sat).float()
-        if self.conf.pose_from == 'aa':
-            # sat coordinate to ground(east=z/south=x) coordinate , then, to camera coordinate
-            body2ned = Pose.from_aa(np.array([roll, pitch, heading]), np.zeros(3)).float()
-        elif self.conf.pose_from == 'rt':
-            R = np.array([[np.cos(heading), -np.sin(heading), 0], [np.sin(heading), np.cos(heading), 0], [0, 0, 1.]])
-            t = np.zeros(3)
-            body2ned = Pose.from_Rt(R, t).float()
-
+        # sat coordinate to ground(east=z/south=x) coordinate , then, to camera coordinate
+        body2ned = Pose.from_aa(np.array([roll, pitch, heading]), np.zeros(3)).float()
         # cam->body->ned->sat without translate
         R_fl2body = self.FL_relPose_body.copy()
         # R_fl2body[:, 3] = 0.
@@ -318,11 +294,6 @@ class _Dataset(Dataset):
         translation_offset = Pose.from_4x4mat(translation_offset)
         cam2sat.t[-1] = 0
         cam2sat = translation_offset @ cam2sat
-
-        if self.conf.debug:
-            print(f'ford2 0,0,0 to {camera.world2image(cam2sat * torch.tensor([0., 0., 0.]))}')
-            print(f'ford2 10,0,0 to {camera.world2image(cam2sat * torch.tensor([10., 0., 0.]))}')
-            print(f'ford2 20,-20,0 to {camera.world2image(cam2sat * torch.tensor([20., -20., 0.]))}')
 
         if not gt_from_gps:
             cam_location_x = dx_pixel_ned + satellite_ori_size / 2.0 + cam_location[0,0]
@@ -376,23 +347,33 @@ class _Dataset(Dataset):
         }
 
         _, FL_visible = camera.world2image(torch.from_numpy(cam_3d).float())
-        visible = FL_visible
-        cam_3d = cam_3d[visible]
+        cam_mask = FL_visible
+        # cam_3d = cam_3d[visible]
         key_points = torch.from_numpy(cam_3d).float()
-        FL_image['points3D_type'] = 'lidar'
+        FL_image['points3D_type'] = 'lidar3'
 
-        if len(key_points) == 0:
-            print(self.file_name[idx][:-1], len(self.FL_kp.item().keys()) )
-        num_diff = self.conf.max_num_points3D - len(key_points)
-        if num_diff < 0:
-            # select max_num_points
-            sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
-            key_points = key_points[sample_idx]
-        elif num_diff > 0 and self.conf.force_num_points3D:
-            point_add = torch.ones((num_diff, 3)) * key_points[-1]
-            key_points = torch.cat([key_points, point_add], dim=0)
+        # new code
+        cam_3d_visible = self.sample_points(key_points[cam_mask], self.conf.max_num_points3D)
+        cam_3d_invisible = self.sample_points(key_points[~cam_mask], self.conf.max_num_out_points3D)
+        key_points = torch.cat([cam_3d_visible, cam_3d_invisible], dim=0)
+        mask = torch.zeros(key_points.size(0), dtype=torch.bool)
+        mask[:self.conf.max_num_points3D] = True
+
+        # # existing code
+        # if len(key_points) == 0:
+        #     print(self.file_name[idx][:-1], len(self.FL_kp.item().keys()) )
+        # num_diff = self.conf.max_num_points3D - len(key_points)
+        # if num_diff < 0:
+        #     # select max_num_points
+        #     sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
+        #     key_points = key_points[sample_idx]
+        # elif num_diff > 0 and self.conf.force_num_points3D:
+        #     point_add = torch.ones((num_diff, 3)) * key_points[-1]
+        #     key_points = torch.cat([key_points, point_add], dim=0)
+
+
         FL_image['points3D'] = key_points
-
+        FL_image['points3D_mask'] = mask
 
         # init and gt pose~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ramdom shift translation and rotation on yaw
