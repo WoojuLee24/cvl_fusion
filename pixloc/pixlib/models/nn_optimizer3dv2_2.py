@@ -254,6 +254,11 @@ class NNrefinev1_0(nn.Module):
         elif self.args.version in [1.05]:
             self.cin = [c for c in self.cin]
 
+        if self.args.pose_from == 'aa':
+            self.yout = 6
+        elif self.args.pose_from == 'rt':
+            self.yout = 3
+
         if self.args.integral:
             I_size = self.args.input_dim
             self.cin = [c+I_size[i] for i, c in enumerate(self.cin)]
@@ -262,12 +267,8 @@ class NNrefinev1_0(nn.Module):
             if self.args.jtr:
                 self.cin = [c + J_size[i] * 6 for i, c in enumerate(self.cin)]
             else:
-                self.cin = [c+J_size[i]*3 for i, c in enumerate(self.cin)]
+                self.cin = [c+J_size[i]*self.yout for i, c in enumerate(self.cin)]
 
-        if self.args.pose_from == 'aa':
-            self.yout = 6
-        elif self.args.pose_from == 'rt':
-            self.yout = 3
 
         self.linear0 = nn.Sequential(nn.ReLU(inplace=True),
                                      nn.Linear(self.cin[0], self.cout))

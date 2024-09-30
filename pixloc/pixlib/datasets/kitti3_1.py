@@ -23,10 +23,10 @@ from pixloc.pixlib.datasets.augmix_dataset import AugMixDataset
 from pixloc.pixlib.models.pointnet2 import farthest_point_sample
 # from pytorch3d.ops import sample_farthest_points
 from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
-from torchvision import transforms
+
 
 root_dir = "/ws/data/kitti-vo" # your kitti dir
-satmap_zoom = 18 
+satmap_zoom = 18
 satmap_dir = 'satmap_'+str(satmap_zoom)
 grdimage_dir = 'raw_data'
 left_color_camera_dir = 'image_02/data'
@@ -45,8 +45,9 @@ class Kitti(BaseDataset):
     default_conf = {
         'two_view': True,
         'max_num_points3D': 5000,
+        'max_num_out_points3D': 15000,
         'center_num_points3D': 1024,
-        'force_num_points3D': False,
+        'force_num_points3D': True,
         'rot_range': 15,
         'trans_range': 5,
         'satmap_zoom': 18,
@@ -130,9 +131,10 @@ def read_sensor_rel_pose(file_name):
 def project_lidar_to_cam(velodyne, camera_k, lidar2cam_R, lidar2cam_T, img_size):
 
     points3d = lidar2cam_R @ velodyne.T[:3, :] + lidar2cam_T[:, None]
+
     velo_mask = points3d[2, :] > 0
-    points3d = points3d[:, velo_mask]
-    velodyne_trimed = velodyne.T[:, velo_mask]
+    # points3d = points3d[:, velo_mask]
+    # velodyne_trimed = velodyne.T[:, velo_mask]
 
     # project the points to the camera
     points2d = camera_k @ points3d
@@ -141,7 +143,10 @@ def project_lidar_to_cam(velodyne, camera_k, lidar2cam_R, lidar2cam_T, img_size)
     u_mask = (points2d[0] < img_size[1]) & (points2d[0] > 0)
     v_mask = (points2d[1] < img_size[0]) & (points2d[1] > 0)
     uv_mask = u_mask & v_mask
-    return points2d[:, uv_mask], points3d[:, uv_mask], velodyne_trimed[:, uv_mask]
+
+    mask = uv_mask & velo_mask
+
+    return points2d[:, mask], points3d[:, uv_mask], points3d, mask # velodyne_trimed[:, uv_mask]
 
 class _Dataset(Dataset):
     def __init__(self, conf, split):
@@ -180,11 +185,19 @@ class _Dataset(Dataset):
             indexes = int(len(self.file_name) * self.conf.part)
             self.file_name = self.file_name[:indexes]
 
-        if self.conf.aug == 'color':
-            self.aug = transforms.ColorJitter((0.8, 1.2), (0.8, 1.2), (0.8, 1.2), (-0.1, 0.1))
-
     def __len__(self):
         return len(self.file_name)
+
+    def sample_points(self, key_points, max_points):
+        num_diff = max_points - len(key_points)
+        if num_diff < 0:
+            sample_idx = np.random.choice(range(len(key_points)), max_points)
+            key_points = key_points[sample_idx]
+        elif num_diff > 0:
+            point_add = torch.ones((num_diff, 3)) * key_points[-1]
+            key_points = torch.cat([key_points, point_add], dim=0)
+
+        return key_points
 
     def __getitem__(self, idx):
         # read cemera k matrix from camera calibration files, day_dir is first 10 chat of file name
@@ -225,8 +238,6 @@ class _Dataset(Dataset):
         left_img_name = os.path.join(self.root, grdimage_dir, drive_dir, left_color_camera_dir, image_no.lower())
         with Image.open(left_img_name, 'r') as GrdImg:
             grd_left = GrdImg.convert('RGB')
-            if self.conf.aug == 'color' and random.random() > 0.5:
-                grd_left = self.aug(grd_left)
             grd_ori_H = grd_left.size[1]
             grd_ori_W = grd_left.size[0]
             # resize
@@ -239,7 +250,7 @@ class _Dataset(Dataset):
 
         # project these lidar points to camera coordinate
         # velodyne_local: lidar points (3D) which are visible to the image, in the velodyne coordinate system
-        _, cam_3d, _ = project_lidar_to_cam(velodyne, camera_k, lidar2cam_R, lidar2cam_T, (grd_ori_H,grd_ori_W))
+        _, cam_3d_, cam_3d, cam_mask = project_lidar_to_cam(velodyne, camera_k, lidar2cam_R, lidar2cam_T, (grd_ori_H,grd_ori_W))
 
         # grd left
         camera_para = (camera_k[0,0],camera_k[1,1],camera_k[0,2],camera_k[1,2])
@@ -251,6 +262,7 @@ class _Dataset(Dataset):
             'camera': camera.float(),
             'T_w2cam': Pose.from_4x4mat(np.eye(4)).float(),  # already consider calibration in points3D
             'camera_h': torch.tensor(1.65),
+
         }
 
         # if self.conf.pose_from == 'aa':
@@ -302,7 +314,7 @@ class _Dataset(Dataset):
         q2r_gt.t[-1] = 0
 
         # add the offset between camera and body to shift the center to query camera
-        #cam_pixel = q2r_gt * camera_center_loc
+        # cam_pixel = q2r_gt * camera_center_loc
         # apply offset on the q2r_gt
         translation_offset = np.array([[1., 0, 0, x_sg], [0, 1, 0, -y_sg], [0, 0, 1, 0],
                                        [0, 0, 0, 1]])
@@ -327,19 +339,40 @@ class _Dataset(Dataset):
         # project to sat and find visible mask
         cam_3d = cam_3d.T
         _, visible = camera.world2image(torch.from_numpy(cam_3d).float())
-        cam_3d = cam_3d[visible]
-        key_points = torch.from_numpy(cam_3d).float()
-        grd_image['points3D_type'] = 'lidar'
+        cam_mask = torch.from_numpy(cam_mask) & visible
 
-        num_diff = self.conf.max_num_points3D - len(key_points)
-        if num_diff < 0:
-            # select max_num_points
-            sample_idx = np.random.choice(range(len(key_points)), self.conf.max_num_points3D)
-            key_points = key_points[sample_idx]
-        elif num_diff > 0 and self.conf.force_num_points3D:
-            point_add = torch.ones((num_diff, 3)) * key_points[-1]
-            key_points = torch.cat([key_points, point_add], dim=0)
-        grd_image['points3D'] = key_points
+        # cam_3d = cam_3d[visible]
+        key_points = torch.from_numpy(cam_3d).float()
+        grd_image['points3D_type'] = 'lidar3'
+
+        # new code
+        cam_3d_visible = self.sample_points(key_points[cam_mask], self.conf.max_num_points3D)
+        cam_3d_invisible = self.sample_points(key_points[~cam_mask], self.conf.max_num_out_points3D)
+        key_points = torch.cat([cam_3d_visible, cam_3d_invisible], dim=0)
+        mask = torch.zeros(key_points.size(0), dtype=torch.bool)
+        mask[:self.conf.max_num_points3D] = True
+
+        # # existing code
+        # num_diff = self.conf.max_num_points3D - len(key_points)
+        # if num_diff < 0:
+        #     cam_3d_visible = key_points[cam_mask]
+        #     cam_3d_invisible = key_points[~cam_mask]
+        #
+        #     sample_idx = np.random.choice(range(len(cam_3d_visible)), self.conf.max_num_points3D)
+        #     cam_3d_visible = cam_3d_visible[sample_idx]
+        #     sample_idx = np.random.choice(range(len(cam_3d_invisible)), self.conf.max_num_out_points3D)
+        #     cam_3d_invisible = cam_3d_invisible[sample_idx]
+        #
+        #     key_points = torch.cat([cam_3d_visible, cam_3d_invisible], dim=0)
+        #     mask = torch.zeros(key_points.size(0), dtype=torch.bool)
+        #     mask[:self.conf.max_num_points3D] = True
+        # elif num_diff > 0 and self.conf.force_num_points3D:
+        #     point_add = torch.ones((num_diff, 3)) * key_points[-1]
+        #     key_points = torch.cat([key_points, point_add], dim=0)
+
+
+        grd_image['points3D'] = key_points  # all
+        grd_image['points3D_mask'] = mask  # only visible
 
         # ramdom shift translation and ratation on yaw
         YawShiftRange = self.conf.rot_range * np.pi / 180  # 15 * np.pi / 180  # SIBCL: 15 degree, cvl: 10 degree
@@ -394,32 +427,32 @@ class _Dataset(Dataset):
             color_image1 = transforms.functional.to_pil_image(sat_map, mode='RGB')
             color_image1 = np.array(color_image1)
 
-            grd_2d, _ = grd_image['camera'].world2image(grd_image['points3D'])  ##camera 3d to 2d
+            grd_2d, _ = grd_image['camera'].world2image(grd_image['points3D']) ##camera 3d to 2d
             grd_2d = grd_2d.T
             for j in range(grd_2d.shape[1]):
-                cv2.circle(color_image0, (np.int32(grd_2d[0][j]), np.int32(grd_2d[1][j])), 2, (0, 255, 0),
-                           -1)
+                cv2.circle(color_image0, (np.int32(grd_2d[0][j]), np.int32(grd_2d[1][j])), 5, (0, 255, 0),
+                       -1)
 
-            # # sat gt green
-            # sat_3d = data['T_q2r_gt']*grd_image['points3D']
-            # sat_2d, _ = sat_image['camera'].world2image(sat_3d)  ##camera 3d to 2d
-            # sat_2d = sat_2d.T
-            # for j in range(sat_2d.shape[1]):
-            #     cv2.circle(color_image1, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 5, (0, 255, 0),
-            #            -1)
-            #
-            # origin = torch.zeros(3)
-            # origin_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * origin)
-            # cv2.circle(color_image1, (np.int32(origin_2d_gt[0,0]), np.int32(origin_2d_gt[0,1])), 5, (0, 255, 0),
-            #            -1)
-            #
-            # #sat init red
-            # sat_3d = data['T_q2r_init']* grd_image['points3D']
-            # sat_2d, _ = sat_image['camera'].world2image(sat_3d)  ##camera 3d to 2d
-            # sat_2d = sat_2d.T
-            # for j in range(sat_2d.shape[1]):
-            #     cv2.circle(color_image1, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (255, 0, 0),
-            #            -1)
+            # sat gt green
+            sat_3d = data['T_q2r_gt']*grd_image['points3D']
+            sat_2d, _ = sat_image['camera'].world2image(sat_3d)  ##camera 3d to 2d
+            sat_2d = sat_2d.T
+            for j in range(sat_2d.shape[1]):
+                cv2.circle(color_image1, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (0, 255, 0),
+                       -1)
+
+            origin = torch.zeros(3)
+            origin_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * origin)
+            cv2.circle(color_image1, (np.int32(origin_2d_gt[0,0]), np.int32(origin_2d_gt[0,1])), 5, (0, 255, 0),
+                       -1)
+
+            #sat init red
+            sat_3d = data['T_q2r_init']* grd_image['points3D']
+            sat_2d, _ = sat_image['camera'].world2image(sat_3d)  ##camera 3d to 2d
+            sat_2d = sat_2d.T
+            for j in range(sat_2d.shape[1]):
+                cv2.circle(color_image1, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (255, 0, 0),
+                       -1)
 
             ax1.imshow(color_image0)
             ax2.imshow(color_image1)
@@ -429,7 +462,7 @@ class _Dataset(Dataset):
             origin = torch.zeros(3)
             origin_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * origin)
             origin_2d_init, _ = data['ref']['camera'].world2image(data['T_q2r_init'] * origin)
-            direct = torch.tensor([0, 0, 6.])
+            direct = torch.tensor([0,0,6.])
             direct_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * direct)
             direct_2d_init, _ = data['ref']['camera'].world2image(data['T_q2r_init'] * direct)
             origin_2d_gt = origin_2d_gt.squeeze(0)
@@ -438,16 +471,16 @@ class _Dataset(Dataset):
             direct_2d_init = direct_2d_init.squeeze(0)
 
             # plot the init direction of the body frame
-            plt.scatter(x=origin_2d_init[0], y=origin_2d_init[1], c='r', s=0.5)
+            plt.scatter(x=origin_2d_init[0], y=origin_2d_init[1], c='r', s=10)
             plt.quiver(origin_2d_init[0], origin_2d_init[1], direct_2d_init[0] - origin_2d_init[0],
                        origin_2d_init[1] - direct_2d_init[1], color=['r'], scale=None)
             # plot the gt direction of the body frame
-            plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=0.5)
+            plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=10)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.savefig('/ws/external/debug_images/kitti2/direction.png')
+            plt.savefig('/ws/external/debug_images/kitti3/direction.png')
             plt.show()
-            print(idx, file_name, pitch, roll)
+            print(idx,file_name, pitch, roll)
 
         return data
 
