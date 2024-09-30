@@ -599,7 +599,8 @@ def project_map_to_grd(T, cam_q, cam_ref, F_query, F_ref, data):
     # p3d_g2s = torch.einsum('bij,bhwj->...bhwi', T.R, p3d_grd)  # query world coordinate
     p3d_g2s = T * p3d_grd.reshape(-1, h * w, 3)
 
-    p2d_g2s, mask_g2s = cam_ref.world2image2(data['ref']['T_w2cam'] * p3d_g2s)
+    p2d_g2s, mask_g2s = cam_ref.world2image(data['ref']['T_w2cam'] * p3d_g2s)
+    # p2d_g2s, mask_g2s = cam_ref.world2image2(data['ref']['T_w2cam'] * p3d_g2s)
     # p2d_g2s = p2d_g2s.reshape(-1, h * w, 2)
     F_r2q, mask_r2q, _ = interpolate_tensor(F_ref, p2d_g2s,
                                                    'linear', pad=4, return_gradients=False, out_shape='bcn')
