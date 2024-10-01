@@ -69,7 +69,7 @@ class TwoViewRefiner3D(BaseModel):
         'clamp_error': 7777,
         'normalize_features': True,
         'normalize_dt': True,
-
+        'debug': False,
         # deprecated entries
         'init_target_offset': None,
     }
@@ -459,8 +459,12 @@ class TwoViewRefiner3D(BaseModel):
             losses['pose_loss'] = 0
 
         if self.conf.optimizer.opt_list:
-            pred['T_q2r_opt'] = list(itertools.chain(*pred['T_q2r_opt']))
-            num_scales *= self.conf.optimizer.num_iters
+            # T_opt_list_flatten = list(itertools.chain(*pred['T_q2r_opt']))
+            # pred['T_q2r_opt'] = [index for index, value in enumerate(T_opt_list_flatten)
+            #                      if index % self.conf.optimizer.num_iters == (self.conf.optimizer.num_iters-1)]
+            # num_scales *= self.conf.optimizer.num_iters
+            pred['T_q2r_opt'] = [t_opt[-1] for t_opt in pred['T_q2r_opt']]
+
 
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)

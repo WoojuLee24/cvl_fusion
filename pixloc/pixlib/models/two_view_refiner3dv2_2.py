@@ -114,7 +114,7 @@ class TwoViewRefiner3D(BaseModel):
         pred['pose_loss'] = []
 
         if self.conf.debug:
-            path = 'debug_images/ford2_w2i'  # 'visualizations/dense'
+            path = 'debug_images/kitti3.1_debug'  # 'visualizations/dense'
 
             r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(),
                                                                data['ref']['camera'].cuda(),

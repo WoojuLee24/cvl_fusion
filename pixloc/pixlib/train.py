@@ -54,7 +54,7 @@ default_train_conf = {
 }
 default_train_conf = OmegaConf.create(default_train_conf)
 
-def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, wandb_logger=None):
+def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, wandb_logger=None, args=None):
     model.eval()
     results = {}
     acc = 0
@@ -62,7 +62,9 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     errR = torch.tensor([])
     errlong = torch.tensor([])
     errlat = torch.tensor([])
-    for data in tqdm(loader, desc='Evaluation', ascii=True, disable=not pbar):
+    for i, data in enumerate(tqdm(loader, desc='Evaluation', ascii=True, disable=not pbar)):
+        if i == 5 and model.conf.debug:
+            break
         data = batch_to_device(data, device, non_blocking=True)
         with torch.no_grad():
             pred = model(data)
@@ -86,59 +88,62 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     results = {k: results[k].compute() for k in results}
 
     # if lat <= 0.2 and long <= 0.4 and R < 1: #requerment of Ford
-    logger.info(f'acc of lat<=0.25:{torch.sum(errlat <= 0.25) / errlat.size(0)}')
-    logger.info(f'acc of lat<=0.5:{torch.sum(errlat <= 0.5) / errlat.size(0)}')
-    logger.info(f'acc of lat<=1:{torch.sum(errlat <= 1) / errlat.size(0)}')
-    logger.info(f'acc of lat<=2:{torch.sum(errlat <= 2) / errlat.size(0)}')
+    logger.info(f'acc of lat<=0.25:{(torch.sum(errlat <= 0.25) / errlat.size(0)).cpu()}')
+    logger.info(f'acc of lat<=0.5:{(torch.sum(errlat <= 0.5) / errlat.size(0)).cpu()}')
+    logger.info(f'acc of lat<=1:{(torch.sum(errlat <= 1) / errlat.size(0)).cpu()}')
+    logger.info(f'acc of lat<=2:{(torch.sum(errlat <= 2) / errlat.size(0)).cpu()}')
 
-    logger.info(f'acc of long<=0.25:{torch.sum(errlong <= 0.25) / errlong.size(0)}')
-    logger.info(f'acc of long<=0.5:{torch.sum(errlong <= 0.5) / errlong.size(0)}')
-    logger.info(f'acc of long<=1:{torch.sum(errlong <= 1) / errlong.size(0)}')
-    logger.info(f'acc of long<=2:{torch.sum(errlong <= 2) / errlong.size(0)}')
+    logger.info(f'acc of long<=0.25:{(torch.sum(errlong <= 0.25) / errlong.size(0)).cpu()}')
+    logger.info(f'acc of long<=0.5:{(torch.sum(errlong <= 0.5) / errlong.size(0)).cpu()}')
+    logger.info(f'acc of long<=1:{(torch.sum(errlong <= 1) / errlong.size(0)).cpu()}')
+    logger.info(f'acc of long<=2:{(torch.sum(errlong <= 2) / errlong.size(0)).cpu()}')
 
     # logger.info(f'acc of R<=0.5:{torch.sum(errR <= 0.5) / errR.size(0)}')
-    logger.info(f'acc of R<=1:{torch.sum(errR <= 1) / errR.size(0)}')
-    logger.info(f'acc of R<=2:{torch.sum(errR <= 2) / errR.size(0)}')
-    logger.info(f'acc of R<=4:{torch.sum(errR <= 4) / errR.size(0)}')
+    logger.info(f'acc of R<=1:{(torch.sum(errR <= 1) / errR.size(0)).cpu()}')
+    logger.info(f'acc of R<=2:{(torch.sum(errR <= 2) / errR.size(0)).cpu()}')
+    logger.info(f'acc of R<=4:{(torch.sum(errR <= 4) / errR.size(0)).cpu()}')
 
-    logger.info(f'mean errR:{torch.mean(errR)},errlat:{torch.mean(errlat)},errlong:{torch.mean(errlong)}')
-    logger.info(f'var errR:{torch.var(errR)},errlat:{torch.var(errlat)},errlong:{torch.var(errlong)}')
-    logger.info(f'median errR:{torch.median(errR)},errlat:{torch.median(errlat)},errlong:{torch.median(errlong)}')
+    logger.info(f'mean errR:{torch.mean(errR).cpu()}, errlat:{torch.mean(errlat).cpu()}, errlong:{torch.mean(errlong).cpu()}')
+    logger.info(f'var errR:{torch.var(errR).cpu()}, errlat:{torch.var(errlat).cpu()}, errlong:{torch.var(errlong).cpu()}')
+    logger.info(f'median errR:{torch.median(errR).cpu()}, errlat:{torch.median(errlat).cpu()}, errlong:{torch.median(errlong).cpu()}')
 
-    if wandb_logger != None:
-        wandb_logger.wandb.log({'val/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
-        wandb_logger.wandb.log({'val/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
-        wandb_logger.wandb.log({'val/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
-        wandb_logger.wandb.log({'val/mean errlat': torch.mean(errlat)})
-        wandb_logger.wandb.log({'val/var errlat': torch.var(errlat)})
-        wandb_logger.wandb.log({'val/median errlat': torch.median(errlat)})
+    wandb_features = dict()
+    wandb_features.update({'val/lat 0.25m': (torch.sum(errlat <= 0.25) / errlat.size(0)).cpu()})
+    wandb_features.update({'val/lat 0.5m': (torch.sum(errlat <= 0.5) / errlat.size(0)).cpu()})
+    wandb_features.update({'val/lat 1m': (torch.sum(errlat <= 1) / errlat.size(0)).cpu()})
+    wandb_features.update({'val/mean errlat': torch.mean(errlat).cpu()})
+    wandb_features.update({'val/var errlat': torch.var(errlat).cpu()})
+    wandb_features.update({'val/median errlat': torch.median(errlat).cpu()})
 
-        wandb_logger.wandb.log({'val/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
-        wandb_logger.wandb.log({'val/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
-        wandb_logger.wandb.log({'val/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
-        wandb_logger.wandb.log({'val/mean errlon': torch.mean(errlong)})
-        wandb_logger.wandb.log({'val/var errlon': torch.var(errlong)})
-        wandb_logger.wandb.log({'val/median errlon': torch.median(errlong)})
+    wandb_features.update({'val/lon 0.25m': (torch.sum(errlong <= 0.25) / errlong.size(0)).cpu()})
+    wandb_features.update({'val/lon 0.5m': (torch.sum(errlong <= 0.5) / errlong.size(0)).cpu()})
+    wandb_features.update({'val/lon 1m': (torch.sum(errlong <= 1) / errlong.size(0)).cpu()})
+    wandb_features.update({'val/mean errlon': torch.mean(errlong).cpu()})
+    wandb_features.update({'val/var errlon': torch.var(errlong).cpu()})
+    wandb_features.update({'val/median errlon': torch.median(errlong).cpu()})
 
-        wandb_logger.wandb.log({'val/rot 1': torch.sum(errR <= 1) / errR.size(0)})
-        wandb_logger.wandb.log({'val/rot 2': torch.sum(errR <= 2) / errR.size(0)})
-        wandb_logger.wandb.log({'val/rot 4': torch.sum(errR <= 4) / errR.size(0)})
-        wandb_logger.wandb.log({'val/mean errR': torch.mean(errR)})
-        wandb_logger.wandb.log({'val/var errR': torch.var(errR)})
-        wandb_logger.wandb.log({'val/median errR': torch.median(errR)})
+    wandb_features.update({'val/rot 1': (torch.sum(errR <= 1) / errR.size(0)).cpu()})
+    wandb_features.update({'val/rot 2': (torch.sum(errR <= 2) / errR.size(0)).cpu()})
+    wandb_features.update({'val/rot 4': (torch.sum(errR <= 4) / errR.size(0)).cpu()})
+    wandb_features.update({'val/mean errR': torch.mean(errR).cpu()})
+    wandb_features.update({'val/var errR': torch.var(errR).cpu()})
+    wandb_features.update({'val/median errR': torch.median(errR).cpu()})
 
-        # for demo
-        if loader.dataset.conf.name in ['kitti2_gazebo', 'kitti2_kaist0812']:
-            wandb_logger.wandb.log({'val/lat 5m': torch.sum(errlat <= 5) / errlat.size(0)})
-            wandb_logger.wandb.log({'val/lon 5m': torch.sum(errlong <= 5) / errlong.size(0)})
-            wandb_logger.wandb.log({'val/lat 10m': torch.sum(errlat <= 10) / errlat.size(0)})
-            wandb_logger.wandb.log({'val/lon 10m': torch.sum(errlong <= 10) / errlong.size(0)})
+    # for demo
+    if loader.dataset.conf.name in ['kitti2_gazebo', 'kitti2_kaist0812']:
+        wandb_features.update({'val/lat 5m': torch.sum(errlat <= 5) / errlat.size(0)})
+        wandb_features.update({'val/lon 5m': torch.sum(errlong <= 5) / errlong.size(0)})
+        wandb_features.update({'val/lat 10m': torch.sum(errlat <= 10) / errlat.size(0)})
+        wandb_features.update({'val/lon 10m': torch.sum(errlong <= 10) / errlong.size(0)})
 
+    if args.wandb:
+        wandb_logger.wandb.log(wandb_features)
+    del wandb_features
 
     return results
 
 
-def test_basic(dataset, model, wandb_logger=None):
+def test_basic(dataset, model, wandb_logger=None, args=None):
     test_loader = dataset.get_data_loader('test', shuffle=False)
 
     model.eval()
@@ -147,6 +152,8 @@ def test_basic(dataset, model, wandb_logger=None):
     errlong = torch.tensor([])
     errlat = torch.tensor([])
     for idx, data in enumerate(tqdm(test_loader)):
+        if idx == 5 and model.conf.debug:
+            break
         data_ = batch_to_device(data, device='cuda')
         # logger.set(data_)
         pred_ = model(data_)
@@ -186,34 +193,38 @@ def test_basic(dataset, model, wandb_logger=None):
     logger.info(f'var errR:{torch.var(errR)}, errlat:{torch.var(errlat)}, errlong:{torch.var(errlong)}')
     logger.info(f'median errR:{torch.median(errR)}, errlat:{torch.median(errlat)}, errlong:{torch.median(errlong)}')
 
-    if wandb_logger != None:
-        wandb_logger.wandb.log({'test/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
-        wandb_logger.wandb.log({'test/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
-        wandb_logger.wandb.log({'test/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
-        wandb_logger.wandb.log({'test/mean errlat': torch.mean(errlat)})
-        wandb_logger.wandb.log({'test/var errlat': torch.var(errlat)})
-        wandb_logger.wandb.log({'test/median errlat': torch.median(errlat)})
+    wandb_features = dict()
+    wandb_features.update({'test/lat 0.25m': (torch.sum(errlat <= 0.25) / errlat.size(0)).cpu()})
+    wandb_features.update({'test/lat 0.5m': (torch.sum(errlat <= 0.5) / errlat.size(0)).cpu()})
+    wandb_features.update({'test/lat 1m': (torch.sum(errlat <= 1) / errlat.size(0)).cpu()})
+    wandb_features.update({'test/mean errlat': torch.mean(errlat).cpu()})
+    wandb_features.update({'test/var errlat': torch.var(errlat).cpu()})
+    wandb_features.update({'test/median errlat': torch.median(errlat).cpu()})
 
-        wandb_logger.wandb.log({'test/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
-        wandb_logger.wandb.log({'test/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
-        wandb_logger.wandb.log({'test/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
-        wandb_logger.wandb.log({'test/mean errlon': torch.mean(errlong)})
-        wandb_logger.wandb.log({'test/var errlon': torch.var(errlong)})
-        wandb_logger.wandb.log({'test/median errlon': torch.median(errlong)})
+    wandb_features.update({'test/lon 0.25m': (torch.sum(errlong <= 0.25) / errlong.size(0)).cpu()})
+    wandb_features.update({'test/lon 0.5m': (torch.sum(errlong <= 0.5) / errlong.size(0)).cpu()})
+    wandb_features.update({'test/lon 1m': (torch.sum(errlong <= 1) / errlong.size(0)).cpu()})
+    wandb_features.update({'test/mean errlon': torch.mean(errlong).cpu()})
+    wandb_features.update({'test/var errlon': torch.var(errlong).cpu()})
+    wandb_features.update({'test/median errlon': torch.median(errlong).cpu()})
 
-        wandb_logger.wandb.log({'test/rot 1': torch.sum(errR <= 1) / errR.size(0)})
-        wandb_logger.wandb.log({'test/rot 2': torch.sum(errR <= 2) / errR.size(0)})
-        wandb_logger.wandb.log({'test/rot 4': torch.sum(errR <= 4) / errR.size(0)})
-        wandb_logger.wandb.log({'test/mean errR': torch.mean(errR)})
-        wandb_logger.wandb.log({'test/var errR': torch.var(errR)})
-        wandb_logger.wandb.log({'test/median errR': torch.median(errR)})
+    wandb_features.update({'test/rot 1': (torch.sum(errR <= 1) / errR.size(0)).cpu()})
+    wandb_features.update({'test/rot 2': (torch.sum(errR <= 2) / errR.size(0)).cpu()})
+    wandb_features.update({'test/rot 4': (torch.sum(errR <= 4) / errR.size(0)).cpu()})
+    wandb_features.update({'test/mean errR': torch.mean(errR).cpu()})
+    wandb_features.update({'test/var errR': torch.var(errR).cpu()})
+    wandb_features.update({'test/median errR': torch.median(errR).cpu()})
 
-        # for demo
-        if dataset.conf.name in ['kitti2_gazebo', 'kitti2_kaist0812']:
-            wandb_logger.wandb.log({'test/lat 5m': torch.sum(errlat <= 5) / errlat.size(0)})
-            wandb_logger.wandb.log({'test/lon 5m': torch.sum(errlong <= 5) / errlong.size(0)})
-            wandb_logger.wandb.log({'test/lat 10m': torch.sum(errlat <= 10) / errlat.size(0)})
-            wandb_logger.wandb.log({'test/lon 10m': torch.sum(errlong <= 10) / errlong.size(0)})
+    # for demo
+    if dataset.conf.name in ['kitti2_gazebo', 'kitti2_kaist0812']:
+        wandb_features.update({'test/lat 5m': (torch.sum(errlat <= 5) / errlat.size(0)).cpu()})
+        wandb_features.update({'test/lon 5m': (torch.sum(errlong <= 5) / errlong.size(0)).cpu()})
+        wandb_features.update({'test/lat 10m': (torch.sum(errlat <= 10) / errlat.size(0)).cpu()})
+        wandb_features.update({'test/lon 10m': (torch.sum(errlong <= 10) / errlong.size(0)).cpu()})
+
+    if args.wandb:
+        wandb_logger.wandb.log(wandb_features)
+    del wandb_features
 
     return
 
@@ -288,44 +299,46 @@ def test_kitti_voc(dataset, model, wandb_logger=None):
         logger.info(f'- [total] var errR:{torch.var(errR)}, errlat:{torch.var(errlat)}, errlong:{torch.var(errlong)}')
         logger.info(f'- [total] median errR:{torch.median(errR)}, errlat:{torch.median(errlat)}, errlong:{torch.median(errlong)}')
 
+        wandb_features = dict()
+        wandb_features.update({f'total/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+        wandb_features.update({f'total/lat 1': torch.sum(errlat <= 1) / errlat.size(0)})
+        wandb_features.update({f'total/lon 1': torch.sum(errlong <= 1) / errlong.size(0)})
+
+        wandb_features.update({f'total/mean errR': torch.mean(errR)})
+        wandb_features.update({f'total/mean errlat': torch.mean(errlat)})
+        wandb_features.update({f'total/mean errlong': torch.mean(errlong)})
+
+        wandb_features.update({f'total/var errR': torch.var(errR)})
+        wandb_features.update({f'total/var errlat': torch.var(errlat)})
+        wandb_features.update({f'total/var errlong': torch.var(errlong)})
+
+        wandb_features.update({f'total/median errR': torch.median(errR)})
+        wandb_features.update({f'total/median errlat': torch.median(errlat)})
+        wandb_features.update({f'total/median errlong': torch.median(errlong)})
+
+        wandb_features.update({f'{corruption}/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
+        wandb_features.update({f'{corruption}/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
+        wandb_features.update({f'{corruption}/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
+        wandb_features.update({f'{corruption}/mean errlat': torch.mean(errlat)})
+        wandb_features.update({f'{corruption}/var errlat': torch.var(errlat)})
+        wandb_features.update({f'{corruption}/median errlat': torch.median(errlat)})
+
+        wandb_features.update({f'{corruption}/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
+        wandb_features.update({f'{corruption}/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
+        wandb_features.update({f'{corruption}/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
+        wandb_features.update({f'{corruption}/mean errlon': torch.mean(errlong)})
+        wandb_features.update({f'{corruption}/var errlon': torch.var(errlong)})
+        wandb_features.update({f'{corruption}/median errlon': torch.median(errlong)})
+
+        wandb_features.update({f'{corruption}/rot 1': torch.sum(errR <= 1) / errR.size(0)})
+        wandb_features.update({f'{corruption}/rot 2': torch.sum(errR <= 2) / errR.size(0)})
+        wandb_features.update({f'{corruption}/rot 4': torch.sum(errR <= 4) / errR.size(0)})
+        wandb_features.update({f'{corruption}/mean errR': torch.mean(errR)})
+        wandb_features.update({f'{corruption}/var errR': torch.var(errR)})
+        wandb_features.update({f'{corruption}/median errR': torch.median(errR)})
+
         if wandb_logger != None:
-            wandb_logger.wandb.log({f'total/rot 1': torch.sum(errR <= 1) / errR.size(0)})
-            wandb_logger.wandb.log({f'total/lat 1': torch.sum(errlat <= 1) / errlat.size(0)})
-            wandb_logger.wandb.log({f'total/lon 1': torch.sum(errlong <= 1) / errlong.size(0)})
-
-            wandb_logger.wandb.log({f'total/mean errR': torch.mean(errR)})
-            wandb_logger.wandb.log({f'total/mean errlat': torch.mean(errlat)})
-            wandb_logger.wandb.log({f'total/mean errlong': torch.mean(errlong)})
-
-            wandb_logger.wandb.log({f'total/var errR': torch.var(errR)})
-            wandb_logger.wandb.log({f'total/var errlat': torch.var(errlat)})
-            wandb_logger.wandb.log({f'total/var errlong': torch.var(errlong)})
-
-            wandb_logger.wandb.log({f'total/median errR': torch.median(errR)})
-            wandb_logger.wandb.log({f'total/median errlat': torch.median(errlat)})
-            wandb_logger.wandb.log({f'total/median errlong': torch.median(errlong)})
-
-            wandb_logger.wandb.log({f'{corruption}/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/mean errlat': torch.mean(errlat)})
-            wandb_logger.wandb.log({f'{corruption}/var errlat': torch.var(errlat)})
-            wandb_logger.wandb.log({f'{corruption}/median errlat': torch.median(errlat)})
-
-            wandb_logger.wandb.log({f'{corruption}/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/mean errlon': torch.mean(errlong)})
-            wandb_logger.wandb.log({f'{corruption}/var errlon': torch.var(errlong)})
-            wandb_logger.wandb.log({f'{corruption}/median errlon': torch.median(errlong)})
-
-            wandb_logger.wandb.log({f'{corruption}/rot 1': torch.sum(errR <= 1) / errR.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/rot 2': torch.sum(errR <= 2) / errR.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/rot 4': torch.sum(errR <= 4) / errR.size(0)})
-            wandb_logger.wandb.log({f'{corruption}/mean errR': torch.mean(errR)})
-            wandb_logger.wandb.log({f'{corruption}/var errR': torch.var(errR)})
-            wandb_logger.wandb.log({f'{corruption}/median errR': torch.median(errR)})
-
+            wandb_logger.wandb.log(wandb_features)
 
     return
 
@@ -361,7 +374,7 @@ def test(rank, conf, output_dir, args, wandb_logger=None):
     if data_conf.name == 'kitti_voc':
         test_kitti_voc(dataset, model, wandb_logger)
     else:
-        test_basic(dataset, model, wandb_logger)
+        test_basic(dataset, model, wandb_logger, conf)
 
     return
 
@@ -599,7 +612,6 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
     losses_ = None
 
     # torch.cuda.empty_cache()  # should be cleared at the first iter
-    wandb_features = dict()
     while epoch < conf.train.epochs and not stop:
         if rank == 0:
             logger.info(f'Starting epoch {epoch}')
@@ -680,6 +692,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                     logger.warning(f'Skip iteration {it} due to detach.')
 
             if it % conf.train.log_every_iter == 0:
+                wandb_features = dict()
                 for k in sorted(losses.keys()):
                     if args.distributed:
                         losses[k] = losses[k].sum()
@@ -691,73 +704,72 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
                     logger.info('[E {} | it {}] loss {{{}}}'.format(
                         epoch, it, ', '.join(str_losses)))
 
+                    losses_dict = {}
+                    for k, v in losses.items():
+                        k = 'training/' + k
+                        losses_dict[k] = v
+                        # wandb_logger.wandb.log({k: v})
+                    wandb_features.update(losses_dict)
+                    wandb_features.update({'training/lat 0.25m': (torch.sum(errlat <= 0.25) / errlat.size(0)).cpu()})
+                    wandb_features.update({'training/lat 0.5m': (torch.sum(errlat <= 0.5) / errlat.size(0)).cpu()})
+                    wandb_features.update({'training/lat 1m': (torch.sum(errlat <= 1) / errlat.size(0)).cpu()})
+                    wandb_features.update({'training/mean errlat': torch.mean(errlat).cpu()})
+                    wandb_features.update({'training/var errlat': torch.var(errlat).cpu()})
+                    wandb_features.update({'training/median errlat': torch.median(errlat).cpu()})
+
+                    wandb_features.update({'training/lon 0.25m': (torch.sum(errlong <= 0.25) / errlong.size(0)).cpu()})
+                    wandb_features.update({'training/lon 0.5m': (torch.sum(errlong <= 0.5) / errlong.size(0)).cpu()})
+                    wandb_features.update({'training/lon 1m': (torch.sum(errlong <= 1) / errlong.size(0)).cpu()})
+                    wandb_features.update({'training/mean errlon': torch.mean(errlong).cpu()})
+                    wandb_features.update({'training/var errlon': torch.var(errlong).cpu()})
+                    wandb_features.update({'training/median errlon': torch.median(errlong).cpu()})
+
+                    wandb_features.update({'training/rot 1': (torch.sum(errR <= 1) / errR.size(0)).cpu()})
+                    wandb_features.update({'training/rot 2': (torch.sum(errR <= 2) / errR.size(0)).cpu()})
+                    wandb_features.update({'training/rot 4': (torch.sum(errR <= 4) / errR.size(0)).cpu()})
+                    wandb_features.update({'training/mean errR': torch.mean(errR).cpu()})
+                    wandb_features.update({'training/var errR': torch.var(errR).cpu()})
+                    wandb_features.update({'training/median errR': torch.median(errR).cpu()})
+
                     if args.wandb:
-                        losses_dict = {}
-                        for k, v in losses.items():
-                            k = 'training/' + k
-                            losses_dict[k] = v
-                            # wandb_logger.wandb.log({k: v})
-                        wandb_features.update(losses_dict)
-                        wandb_features.update({'training/lat 0.25m': torch.sum(errlat <= 0.25) / errlat.size(0)})
-                        wandb_features.update({'training/lat 0.5m': torch.sum(errlat <= 0.5) / errlat.size(0)})
-                        wandb_features.update({'training/lat 1m': torch.sum(errlat <= 1) / errlat.size(0)})
-                        wandb_features.update({'training/mean errlat': torch.mean(errlat)})
-                        wandb_features.update({'training/var errlat': torch.var(errlat)})
-                        wandb_features.update({'training/median errlat': torch.median(errlat)})
-
-                        wandb_features.update({'training/lon 0.25m': torch.sum(errlong <= 0.25) / errlong.size(0)})
-                        wandb_features.update({'training/lon 0.5m': torch.sum(errlong <= 0.5) / errlong.size(0)})
-                        wandb_features.update({'training/lon 1m': torch.sum(errlong <= 1) / errlong.size(0)})
-                        wandb_features.update({'training/mean errlon': torch.mean(errlong)})
-                        wandb_features.update({'training/var errlon': torch.var(errlong)})
-                        wandb_features.update({'training/median errlon': torch.median(errlong)})
-
-                        wandb_features.update({'training/rot 1': torch.sum(errR <= 1) / errR.size(0)})
-                        wandb_features.update({'training/rot 2': torch.sum(errR <= 2) / errR.size(0)})
-                        wandb_features.update({'training/rot 4': torch.sum(errR <= 4) / errR.size(0)})
-                        wandb_features.update({'training/mean errR': torch.mean(errR)})
-                        wandb_features.update({'training/var errR': torch.var(errR)})
-                        wandb_features.update({'training/median errR': torch.median(errR)})
                         wandb_logger.wandb.log(wandb_features)
-
-
                     else:
                         for k, v in losses.items():
                             writer.add_scalar('training/'+k, v, tot_it)
                         writer.add_scalar(
                             'training/lr', optimizer.param_groups[0]['lr'], tot_it)
+                    del wandb_features
 
             del pred, data, loss, losses
 
             results = 0
-            if (stop or it == (len(train_loader) - 1)):
-            # if it == 0:
+            # if (stop or it == (len(train_loader) - 1)):
+            if it == 5 and model.conf.debug:
                 ################
                 ###VALIDATION###
                 ################
                 with fork_rng(seed=conf.train.seed):
                     results = do_evaluation(
                         model, val_loader, device, loss_fn, metrics_fn,
-                        conf.train, pbar=(rank == 0), wandb_logger=wandb_logger)
+                        conf.train, pbar=(rank == 0), wandb_logger=wandb_logger, args=args)
                 if rank == 0:
                     str_results = [f'{k} {v:.3E}' for k, v in results.items()]
                     logger.info(f'[Validation] {{{", ".join(str_results)}}}')
 
-                    if args.wandb:
-                        for k, v in results.items():
-                            k = 'val/' + k
-                            wandb_logger.wandb.log({k: v})
-                    else:
-                        for k, v in results.items():
-                            writer.add_scalar('val/'+k, v, tot_it)
+                    # if args.wandb:
+                    #     for k, v in results.items():
+                    #         k = 'val/' + k
+                    #         wandb_logger.wandb.log({k: v})
+                    # else:
+                    #     for k, v in results.items():
+                    #         writer.add_scalar('val/'+k, v, tot_it)
                 torch.cuda.empty_cache()  # should be cleared at the first iter
-
                 ################
                 ######TEST######
                 ################
-                # test & save every epoch
-                # if args.save_every_epoch:
-                #     test_basic(dataset, model, wandb_logger)
+                # # test & save every epoch
+                # if args.test_every_epoch:
+                #     test_basic(dataset, model, wandb_logger, args)
                 #     torch.cuda.empty_cache()  # should be cleared at the first iter
 
             if stop:
