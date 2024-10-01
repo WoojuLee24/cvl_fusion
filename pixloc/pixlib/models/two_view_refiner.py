@@ -50,7 +50,7 @@ class TwoViewRefiner(BaseModel):
         'clamp_error': 50,
         'normalize_features': True,
         'normalize_dt': True,
-
+        'debug': False,
         # deprecated entries
         'init_target_offset': None,
     }
