@@ -743,8 +743,8 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
             del pred, data, loss, losses
 
             results = 0
-            # if (stop or it == (len(train_loader) - 1)):
-            if it == 5 and model.conf.debug:
+            if (stop or it == (len(train_loader) - 1)):
+            # if it == 5 and model.conf.debug:
                 ################
                 ###VALIDATION###
                 ################
