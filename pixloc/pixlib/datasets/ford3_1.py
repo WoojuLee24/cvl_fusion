@@ -116,6 +116,7 @@ class FordAV(BaseDataset):
         'trans_range': 5,
         'pose_from': 'rt',
         'points_type': 0, # 0: use 3d points from map, 1: use 3d points from lidar blue
+        'max_d': 100,
     }
 
     def _init(self, conf):
@@ -256,6 +257,9 @@ class _Dataset(Dataset):
             pcd.transform(LidarBlue2FL) # move from lidar coordinate to left camera coordinate
 
         cam_3d = np.asarray(pcd.points)
+        distance = np.sqrt(np.sum((cam_3d ** 2), axis=1))
+        distance_mask = distance < self.conf.max_d
+        cam_3d = cam_3d[distance_mask]
         if cam_3d.shape[0] <= 0:
             print('empty points', pcd_file_name)
 

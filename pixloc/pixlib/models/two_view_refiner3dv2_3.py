@@ -117,6 +117,48 @@ class TwoViewRefiner3D(BaseModel):
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
 
+        if self.conf.debug:
+            path = 'debug_images/ford3_debug'  # 'visualizations/dense'
+            from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
+            r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(),
+                                                               data['ref']['camera'].cuda(),
+                                                               data['query']['image'], data['ref']['image'], data)
+
+            q2r_img, q2r_mask, _, _ = project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
+                                                         data['ref']['camera'].cuda(),
+                                                         data['query']['image'], data['ref']['image'], data)
+
+            from pixloc.visualization.viz_2d import imsave
+            imsave(q2r_img[0], f'/ws/external/{path}', '0q2r')
+            imsave(data['query']['image'][0], f'/ws/external/{path}', '0grd')
+            imsave(data['ref']['image'][0], f'/ws/external/{path}', '0sat')
+            imsave(r2q_img[0], f'/ws/external/{path}', '1r2q')
+            imsave(data['query']['image'][0], f'/ws/external/{path}', '1grd')
+
+            imsave(data['ref']['image'][0], f'/ws/external/{path}', '1sat')
+            # print(f"roll: {data['roll']}, pitch: {data['pitch']}")
+
+            p3D_q = data['query']['points3D']
+            p3D_r_gt = data['T_q2r_gt'] * p3D_q
+            p3D_r_init = data['T_q2r_init'] * p3D_q
+
+            cam_r = data['ref']['camera']
+            p2D_q, valid_q = data['query']['camera'].world2image(data['query']['T_w2cam'] * p3D_q)
+            p2D_r_gt, valid_r = cam_r.world2image(p3D_r_gt)
+            p2D_r_init, _ = cam_r.world2image(p3D_r_init)
+
+            from pixloc.pixlib.geometry.interpolation import interpolate_tensor_bilinear
+            from pixloc.visualize_3dvoxel import project
+            F_q, _ = interpolate_tensor_bilinear(data['query']['image'], p2D_q)
+            F_r_gt, _ = interpolate_tensor_bilinear(data['ref']['image'], p2D_r_gt)
+
+            grd_proj_color = project(F_q, data['ref']['image'], p2D_r_gt)
+            sat_color_gt = project(F_r_gt, data['ref']['image'], p2D_r_gt)
+
+            imsave(grd_proj_color.permute(2, 0, 1), f'/ws/external/{path}', '1grd_proj_color_gt')
+            imsave(sat_color_gt.permute(2, 0, 1), f'/ws/external/{path}', '1sat_color_gt')
+
+
         for i in reversed(range(len(self.extractor.scales))):
             if self.conf.optimizer.attention:
                 F_ref = pred['ref']['feature_maps'][i] * pred['ref']['confidences'][i]
@@ -304,11 +346,12 @@ class TwoViewRefiner3D(BaseModel):
             losses = self.reproj_loss2tf(pred, data)  # default = reproj
         elif self.conf.optimizer.main_loss == 'reproj3':
             losses = self.reproj_loss3(pred, data)  # default = reproj
+        elif self.conf.optimizer.main_loss == 'reproj_mask':
+            losses = self.reproj_loss_mask(pred, data)  # default = reproj
         else:
             losses = self.reproj_loss(pred, data)  # default = reproj
 
         return losses
-
 
     def tf_loss(self, pred, data):
         T_q2r_gt = data['T_q2r_gt']
@@ -340,7 +383,6 @@ class TwoViewRefiner3D(BaseModel):
         #     losses['reprojection_error'] = reproj_losses['reprojection_error'].mean().clone().detach()
 
         return losses
-
 
     def rt_loss(self, pred, data):
         cam_ref = data['ref']['camera']
@@ -380,7 +422,6 @@ class TwoViewRefiner3D(BaseModel):
         #     losses['reprojection_error'] = reproj_losses['reprojection_error'].detach()
 
         return losses
-
 
     def reproj_distance_loss(self, pred, data):
         cam_ref = data['ref']['camera']
@@ -459,12 +500,58 @@ class TwoViewRefiner3D(BaseModel):
             losses['pose_loss'] = 0
 
         if self.conf.optimizer.opt_list:
-            # T_opt_list_flatten = list(itertools.chain(*pred['T_q2r_opt']))
-            # pred['T_q2r_opt'] = [index for index, value in enumerate(T_opt_list_flatten)
-            #                      if index % self.conf.optimizer.num_iters == (self.conf.optimizer.num_iters-1)]
-            # num_scales *= self.conf.optimizer.num_iters
             pred['T_q2r_opt'] = [t_opt[-1] for t_opt in pred['T_q2r_opt']]
 
+        for i, T_opt in enumerate(pred['T_q2r_opt']):
+            err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
+            loss = err / num_scales
+            # if i > 0:
+            #     loss = loss * success.float()
+            # thresh = self.conf.success_thresh * self.extractor.scales[-1 - i]
+            # success = err < thresh
+            losses[f'reprojection_error/{i}'] = err
+            losses['total'] += loss
+
+            # query & reprojection GT error, for query unet back propogate
+            if self.conf.optimizer.pose_loss != 'none':
+                losses['pose_loss'] += pred['pose_loss'][i] / num_scales
+                poss_loss_weight = get_weight_from_reproloss(err_init)
+                losses['total'] += (poss_loss_weight * pred['pose_loss'][i] / num_scales).clamp(
+                    max=self.conf.clamp_error / num_scales)
+
+        losses['reprojection_error'] = err
+        losses['reprojection_error/init'] = err_init
+
+        return losses
+
+    def reproj_loss_mask(self, pred, data):
+        cam_ref = data['ref']['camera']
+        points_3d = data['query']['points3D']
+
+        def project(T_q2r):
+            return cam_ref.world2image(T_q2r * points_3d)
+
+        p2D_r_gt, mask = project(data['T_q2r_gt'])
+        p2D_r_i, mask_i = project(data['T_q2r_init'])
+        mask = (mask & mask_i & data['query']['points3D_mask']).float()
+
+        def reprojection_error(T_q2r):
+            p2D_r, _ = project(T_q2r)
+            err = torch.sum((p2D_r_gt - p2D_r) ** 2, dim=-1)
+            err = scaled_barron(1., 2.)(err)[0] / 4
+            err = masked_mean(err, mask, -1)
+            return err
+
+        err_init = reprojection_error(pred['T_q2r_init'][0])
+
+        num_scales = len(self.extractor.scales)
+        # success = None
+        losses = {'total': 0.}
+        if self.conf.optimizer.pose_loss != 'none':
+            losses['pose_loss'] = 0
+
+        if self.conf.optimizer.opt_list:
+            pred['T_q2r_opt'] = [t_opt[-1] for t_opt in pred['T_q2r_opt']]
 
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)

@@ -115,6 +115,7 @@ class FordAV(BaseDataset):
         'rot_range': 15,
         'trans_range': 5,
         'pose_from': 'rt',
+        'max_d': 100,
     }
 
     def _init(self, conf):
@@ -255,6 +256,9 @@ class _Dataset(Dataset):
             pcd.transform(LidarBlue2FL) # move from lidar coordinate to left camera coordinate
 
         cam_3d = np.asarray(pcd.points)
+        distance = np.sqrt(np.sum((cam_3d ** 2), axis=1))
+        distance_mask = distance < self.conf.max_d
+        cam_3d = cam_3d[distance_mask]
         if cam_3d.shape[0] <= 0:
             print('empty points', pcd_file_name)
 
@@ -414,15 +418,16 @@ class _Dataset(Dataset):
         # debug
         if 0:
             #show sat imge
+            path = 'ford3_debug'
             color_image0 = transforms.functional.to_pil_image(data['ref']['image'], mode='RGB')
-            color_image0.save('/ws/external/debug_images/ford2/sat.png')
+            color_image0.save(f'/ws/external/debug_images/{path}/sat.png')
             color_image0 = np.array(color_image0)
             plt.imshow(color_image0)
             plt.show()
 
             # show grd image
             color_image1 = transforms.functional.to_pil_image(data['query']['image'], mode='RGB')
-            color_image1.save('/ws/external/debug_images/ford2/grd.png')
+            color_image1.save(f'/ws/external/debug_images/{path}/grd.png')
             color_image1 = np.array(color_image1)
             plt.imshow(color_image1)
             plt.show()
@@ -494,35 +499,39 @@ class _Dataset(Dataset):
             plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=5)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.savefig('/ws/external/debug_images/ford2/direction_project.png')
+            plt.savefig(f'/ws/external/debug_images/{path}/direction_project.png')
             plt.show()
 
-            # world2image2
+            # world2image
             color_image = transforms.functional.to_pil_image(data['ref']['image'], mode='RGB')
             color_image = np.array(color_image)
-            # sat gt green
-            sat_3d = data['T_q2r_gt'] * data['query']['points3D']
-            sat_2d, _ = data['ref']['camera'].world2image(sat_3d)  ##camera 3d to 2d
-            sat_2d = sat_2d.T
-            for j in range(sat_2d.shape[1]):
-                cv2.circle(color_image, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (0, 255, 0),
-                           -1)
+            if 1:
+                # sat gt green
+                sat_3d = data['T_q2r_gt'] * data['query']['points3D'][data['query']['points3D_mask']]
+                sat_2d, _ = data['ref']['camera'].world2image(sat_3d)  ##camera 3d to 2d
+                sat_2d = sat_2d.T
+                for j in range(sat_2d.shape[1]):
+                    cv2.circle(color_image, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (0, 255, 0),
+                               -1)
 
-            # sat init red
-            sat_3d = data['T_q2r_init'] * data['query']['points3D']
-            sat_2d, _ = data['ref']['camera'].world2image(sat_3d)  ##camera 3d to 2d
-            sat_2d = sat_2d.T
-            for j in range(sat_2d.shape[1]):
-                cv2.circle(color_image, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (255, 0, 0),
-                           -1)
+                # sat init red
+                sat_3d = data['T_q2r_init'] * data['query']['points3D'][data['query']['points3D_mask']]
+                sat_2d, _ = data['ref']['camera'].world2image(sat_3d)  ##camera 3d to 2d
+                sat_2d = sat_2d.T
+                for j in range(sat_2d.shape[1]):
+                    cv2.circle(color_image, (np.int32(sat_2d[0][j]), np.int32(sat_2d[1][j])), 2, (255, 0, 0),
+                               -1)
 
             plt.imshow(color_image)
+
+            # camera position
+            # camera gt position
             origin = torch.zeros(3)
-            origin_2d_gt, _ = data['ref']['camera'].world2image2(data['T_q2r_gt'] * origin)
-            origin_2d_init, _ = data['ref']['camera'].world2image2(data['T_q2r_init'] * origin)
+            origin_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * origin)
+            origin_2d_init, _ = data['ref']['camera'].world2image(data['T_q2r_init'] * origin)
             direct = torch.tensor([0, 0, 6.])
-            direct_2d_gt, _ = data['ref']['camera'].world2image2(data['T_q2r_gt'] * direct)
-            direct_2d_init, _ = data['ref']['camera'].world2image2(data['T_q2r_init'] * direct)
+            direct_2d_gt, _ = data['ref']['camera'].world2image(data['T_q2r_gt'] * direct)
+            direct_2d_init, _ = data['ref']['camera'].world2image(data['T_q2r_init'] * direct)
             origin_2d_gt = origin_2d_gt.squeeze(0)
             origin_2d_init = origin_2d_init.squeeze(0)
             direct_2d_gt = direct_2d_gt.squeeze(0)
@@ -536,7 +545,7 @@ class _Dataset(Dataset):
             plt.scatter(x=origin_2d_gt[0], y=origin_2d_gt[1], c='g', s=5)
             plt.quiver(origin_2d_gt[0], origin_2d_gt[1], direct_2d_gt[0] - origin_2d_gt[0],
                        origin_2d_gt[1] - direct_2d_gt[1], color=['g'], scale=None)
-            plt.savefig('/ws/external/debug_images/ford2/direction_project2.png')
+            plt.savefig(f'/ws/external/debug_images/{path}/direction_project2.png')
             plt.show()
 
             # grd images
@@ -553,7 +562,7 @@ class _Dataset(Dataset):
                     cv2.circle(color_image1, (np.int32(grd_2d[0][j]), np.int32(grd_2d[1][j])), 5, (0, 255, 0),
                                -1)
             ax1.imshow(color_image1)
-            plt.savefig('/ws/external/debug_images/ford2/grd_lidar.png')
+            plt.savefig(f'/ws/external/debug_images/{path}/grd_lidar.png')
             plt.show()
             print(self.file_name[idx][:-1])
 
