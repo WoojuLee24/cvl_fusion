@@ -249,6 +249,8 @@ class NNrefinev1_0(nn.Module):
             self.cin = [c * 3 + pointc * 2 for c in self.cin]
         elif self.args.version in [1.02]:
             self.cin = [c * 3 + pointc for c in self.cin]
+            if self.args.mask == 'pe':
+                self.cin = [c + 4 for c in self.cin]
         elif self.args.version in [1.06]:
             self.cin = [c + pointc for c in self.cin]
         # elif self.args.version in [1.03]:
@@ -493,13 +495,18 @@ class NNrefinev1_0(nn.Module):
             ref_feat = ref_feat * valid
             res = ref_feat - query_feat
             J = J * valid.unsqueeze(dim=-1).detach()
-        elif self.args.mask == 'none':
+        elif self.args.mask in ['none', 'p3d']:
             valid = valid.float().unsqueeze(dim=-1).detach()
             w_unc = w_unc.float().unsqueeze(dim=-1)
             # res = res * valid
             query_feat = query_feat * valid
             res = ref_feat - query_feat
-        elif self.args.mask == 'none_encoding':  # developing TODO
+        elif self.args.mask == 'res':
+            valid = valid.float().unsqueeze(dim=-1).detach()
+            w_unc = w_unc.float().unsqueeze(dim=-1)
+            query_feat = query_feat * valid
+            res = (ref_feat - query_feat) * valid
+        elif self.args.mask == 'pe':  # developing TODO
             valid = valid.float().unsqueeze(dim=-1).detach()
             w_unc = w_unc.float().unsqueeze(dim=-1)
             query_feat = query_feat * valid
@@ -507,7 +514,6 @@ class NNrefinev1_0(nn.Module):
             res = torch.cat([res, valid], dim=-1)
             query_feat = torch.cat([query_feat, valid], dim=-1)
             ref_feat = torch.cat([ref_feat, valid], dim=-1)
-            J = torch.cat([J, valid], dim=-1)
 
         if self.args.weights:
             res = res * w_unc
@@ -529,9 +535,11 @@ class NNrefinev1_0(nn.Module):
         if self.args.mask == 'all':
             p3D_query_feat = p3D_query_feat * valid
             p3D_ref_feat = p3D_ref_feat * valid
-        elif self.args.mask == 'none_encoding':
+        elif self.args.mask == 'pe':
             p3D_query_feat = torch.cat([p3D_query_feat, valid], dim=-1)
             p3D_ref_feat = torch.cat([p3D_ref_feat, valid], dim=-1)
+        elif self.args.mask == 'p3d':
+            p3D_ref_feat = p3D_ref_feat * valid
 
         if self.args.version in [1.0, 1.01, 1.02, 1.03, 1.04, 1.05, 1.06]:    # resconcat2
             if self.args.version == 1.0:
