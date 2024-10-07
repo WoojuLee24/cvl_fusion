@@ -189,7 +189,10 @@ class TwoViewRefiner3D(BaseModel):
                 W_ref = pred['ref']['confidences'][i]
                 W_ref_q = (W_ref, W_q, 1)
             else:
-                W_ref_q = None
+                W_q = pred['query']['confidences'][i]
+                W_q, _, _ = opt.interpolator(W_q, p2D_query)
+                W_ref = pred['ref']['confidences'][i]
+                W_ref_q = (W_ref, W_q, 1)
 
             if self.conf.normalize_features in ['l2', True]:
                 F_q = nnF.normalize(F_q, dim=2)  # B x N x C
