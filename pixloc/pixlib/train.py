@@ -268,6 +268,8 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
         errlong_list = torch.cat([errlong_list, metrics_list['long_error'].unsqueeze(dim=0).cpu().data], dim=0)
         errlat_list = torch.cat([errlat_list, metrics_list['lat_error'].unsqueeze(dim=0).cpu().data], dim=0)
 
+
+
         del pred_, data_
 
     #     for k, v in metrics.items():

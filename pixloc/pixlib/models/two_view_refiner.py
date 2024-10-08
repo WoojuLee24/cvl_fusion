@@ -242,21 +242,13 @@ class TwoViewRefiner(BaseModel):
             return err_R, err_t, err_lat, err_long
 
         metrics = {}
-        # for i, T_opt in enumerate(pred['T_q2r_opt']):
-        #     err = scaled_pose_error(T_opt)
-        #     metrics[f'R_error/{i}'], metrics[f't_error/{i}'], metrics[f'lat_error/{i}'], metrics[
-        #         f'long_error/{i}'] = err
-        # metrics['R_error'], metrics['t_error'], metrics['lat_error'], metrics[f'long_error'] = err
-        #
-        # err_init = scaled_pose_error(pred['T_q2r_init'][0])
-        # metrics['R_error/init'], metrics['t_error/init'], metrics['lat_error/init'], metrics[
-        #     f'long_error/init'] = err_init
+        # error init
+        err_init = scaled_pose_error(pred['T_q2r_init'][0])
+        metrics['R_error/init'], metrics['t_error/init'], metrics['lat_error/init'], metrics[
+            f'long_error/init'] = err_init
 
+        # error pred
         pred['T_q2r_opt_list'] = list(itertools.chain(*pred['T_q2r_opt_list']))
-
-        # R_error_max, t_error_max = torch.zeros_like(err[0]), torch.zeros_like(err[0])
-        # R_R1, t_R1 = torch.tensor([]).to(err[0].device), torch.tensor([]).to(err[0].device)
-
         R_error, t_error, lat_error, long_error = (torch.tensor([]).to(pred['T_q2r_init'][0].device),
                                                   torch.tensor([]).to(pred['T_q2r_init'][0].device),
                                                   torch.tensor([]).to(pred['T_q2r_init'][0].device),
@@ -275,25 +267,6 @@ class TwoViewRefiner(BaseModel):
         metrics['t_error'] = t_error
         metrics['lat_error'] = lat_error
         metrics['long_error'] = long_error
-
-            # R_error_max = torch.max(R_error_max, R_error)
-            # t_error_max = torch.max(t_error_max, t_error)
-            #
-            # R_R1 = torch.cat([R_R1, (R_error < 1).unsqueeze(dim=1)], dim=1)
-            # t_R1 = torch.cat([t_R1, (t_error < 1).unsqueeze(dim=1)], dim=1)
-
-        # R_R1_first_index = torch.argmax(R_R1.float(), dim=1)
-        # has_true = torch.any(R_R1, dim=1)
-        # R_R1_first_index[~has_true] = -1
-        #
-        # t_R1_first_index = torch.argmax(t_R1.float(), dim=1)
-        # has_true = torch.any(t_R1, dim=1)
-        # t_R1_first_index[~has_true] = -1
-        #
-        # metrics['R_error_max'] = R_error_max
-        # metrics['t_error_max'] = t_error_max
-        # metrics['R_min_iter'] = R_R1_first_index
-        # metrics['t_min_iter'] = t_R1_first_index
 
         return metrics
 
