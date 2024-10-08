@@ -53,7 +53,6 @@ class TwoViewRefiner3D(BaseModel):
             'coe_rot': 1.,
             'cascade': False,
             'attention': False,
-            'opt_list': False,
             'jacobian': False,
             'multi_pose': 1,
             'max_num_points3D': 5000,
@@ -114,6 +113,7 @@ class TwoViewRefiner3D(BaseModel):
         T_init = data['T_q2r_init']
         pred['T_q2r_init'] = []
         pred['T_q2r_opt'] = []
+        pred['T_q2r_opt_list'] = []
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
 
@@ -202,34 +202,29 @@ class TwoViewRefiner3D(BaseModel):
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
 
 
-            if self.conf.optimizer.multi_pose > 1:
-                B = F_q.size(0)
-                pose_estimator_input = dict(
-                    p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
-                    mask=mask, W_ref_q=W_ref_q, data=data, scale=i) # TODO
-                pose_estimator_input = self.repeat_features(pose_estimator_input, repeat=self.conf.optimizer.multi_pose) # TODO
-                T_opt, failed = opt(pose_estimator_input)
-                T_opt = Pose(T_opt._data[:B])  # TODO
-            else:
-                T_opt, failed = opt(dict(
-                    p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
-                    mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
+            # if self.conf.optimizer.multi_pose > 1:
+            #     B = F_q.size(0)
+            #     pose_estimator_input = dict(
+            #         p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
+            #         mask=mask, W_ref_q=W_ref_q, data=data, scale=i) # TODO
+            #     pose_estimator_input = self.repeat_features(pose_estimator_input, repeat=self.conf.optimizer.multi_pose) # TODO
+            #     T_opt, failed = opt(pose_estimator_input)
+            #     T_opt = Pose(T_opt._data[:B])  # TODO
+            # else:
+            T_opt, failed, T_opt_list = opt(dict(
+                p3D=p3D_query, F_ref=F_ref, F_q=F_q, T_init=T_init, camera=cam_ref,
+                mask=mask, W_ref_q=W_ref_q, data=data, scale=i))
 
 
             pred['T_q2r_init'].append(T_init)
             pred['T_q2r_opt'].append(T_opt)
+            pred['T_q2r_opt_list'].append(T_opt_list)
             # pred['shiftxyr'].append(shiftxyr)
 
-            if self.conf.optimizer.opt_list:
-                if self.conf.optimizer.cascade:
-                    T_init = T_opt[-1]
-                else:
-                    T_init = T_opt[-1].detach()
+            if self.conf.optimizer.cascade:
+                T_init = T_opt
             else:
-                if self.conf.optimizer.cascade:
-                    T_init = T_opt
-                else:
-                    T_init = T_opt.detach()     # default
+                T_init = T_opt.detach()     # default
 
             # query & reprojection GT error, for query unet back propogate  # PAB Loss
             if self.conf.optimizer.pose_loss == 'triplet': #pose_loss:
@@ -502,9 +497,6 @@ class TwoViewRefiner3D(BaseModel):
         if self.conf.optimizer.pose_loss != 'none':
             losses['pose_loss'] = 0
 
-        if self.conf.optimizer.opt_list:
-            pred['T_q2r_opt'] = [t_opt[-1] for t_opt in pred['T_q2r_opt']]
-
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
             loss = err / num_scales
@@ -553,9 +545,6 @@ class TwoViewRefiner3D(BaseModel):
         if self.conf.optimizer.pose_loss != 'none':
             losses['pose_loss'] = 0
 
-        if self.conf.optimizer.opt_list:
-            pred['T_q2r_opt'] = [t_opt[-1] for t_opt in pred['T_q2r_opt']]
-
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
             loss = err / num_scales
@@ -602,10 +591,6 @@ class TwoViewRefiner3D(BaseModel):
         losses = {'total': 0.}
         if self.conf.optimizer.pose_loss != 'none':
             losses['pose_loss'] = 0
-
-        if self.conf.optimizer.opt_list:
-            pred['T_q2r_opt'] = list(itertools.chain(*pred['T_q2r_opt']))
-            num_scales *= self.conf.optimizer.num_iters
 
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = reprojection_error(T_opt).clamp(max=self.conf.clamp_error)
@@ -671,8 +656,6 @@ class TwoViewRefiner3D(BaseModel):
 
         metrics = {}
         for i, T_opt in enumerate(pred['T_q2r_opt']):
-            if self.conf.optimizer.opt_list:
-                T_opt = T_opt[-1]
             err = scaled_pose_error(T_opt)
             metrics[f'R_error/{i}'], metrics[f't_error/{i}'], metrics[f'lat_error/{i}'], metrics[f'long_error/{i}'] = err
         metrics['R_error'], metrics['t_error'], metrics['lat_error'], metrics[f'long_error']  = err
@@ -696,8 +679,6 @@ class TwoViewRefiner3D(BaseModel):
 
         metrics = {}
         for i, T_opt in enumerate(pred['T_q2r_opt']):
-            if self.conf.optimizer.opt_list:
-                T_opt = T_opt[-1]
             err = scaled_pose_error(T_opt)
             metrics[f'R_error/{i}'], metrics[f't_error/{i}'], metrics[f'lat_error/{i}'], metrics[f'long_error/{i}'] = err
         metrics['R_error'], metrics['t_error'], metrics['lat_error'], metrics[f'long_error']  = err

@@ -69,7 +69,6 @@ class NNOptimizer3D(BaseOptimizer):
         normalize_geometry='none',
         normalize_geometry_feature='l2', #'none',
         normalize_J='none',  # l2
-        opt_list=False,
         jacobian=True,
         jtr=False,
         integral=False,
@@ -196,8 +195,7 @@ class NNOptimizer3D(BaseOptimizer):
 
             T = T_delta @ T
 
-            if self.conf.opt_list == True:
-                T_opt_list.append(T)
+            T_opt_list.append(T)
 
             self.log(i=i, T_init=T_init, T=T, T_delta=T_delta)
 
@@ -207,10 +205,7 @@ class NNOptimizer3D(BaseOptimizer):
         if failed.any():
             logger.debug('One batch element had too few valid points.')
 
-        if self.conf.opt_list == True:
-            return T_opt_list, failed # , shiftxyr
-        else:
-            return T, failed # , shiftxyr
+        return T, failed, T_opt_list # , shiftxyr
 
 
 class NNrefinev1_0(nn.Module):

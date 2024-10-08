@@ -105,6 +105,7 @@ class LearnedOptimizer(BaseOptimizer):
         failed = torch.full(T.shape, False, dtype=torch.bool, device=T.device)
 
         lambda_ = self.dampingnet()
+        T_opt_list = []
 
         for i in range(self.conf.num_iters):
             res, valid, w_unc, _, J = self.cost_fn.residual_jacobian(T, *args)
@@ -138,6 +139,8 @@ class LearnedOptimizer(BaseOptimizer):
             T_delta = Pose.from_aa(dw, dt)
             T = T_delta @ T
 
+            T_opt_list.append(T)
+
             self.log(i=i, T_init=T_init, T=T, T_delta=T_delta, cost=cost,
                      valid=valid, w_unc=w_unc, w_loss=w_loss, H=H, J=J)
             if self.early_stop(i=i, T_delta=T_delta, grad=g, cost=cost):
@@ -146,5 +149,5 @@ class LearnedOptimizer(BaseOptimizer):
         if failed.any():
             logger.debug('One batch element had too few valid points.')
 
-        return T, failed
+        return T, failed, T_opt_list  # , shiftxyr
 
