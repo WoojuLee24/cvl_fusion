@@ -250,6 +250,11 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
     errlong_list = torch.tensor([])
     errlat_list = torch.tensor([])
 
+    errR_init = torch.tensor([])
+    errt_init = torch.tensor([])
+    errlong_init = torch.tensor([])
+    errlat_init = torch.tensor([])
+
     for idx, data in enumerate(tqdm(test_loader)):
         if idx == 5 and model.conf.debug:
             break
@@ -268,7 +273,10 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
         errlong_list = torch.cat([errlong_list, metrics_list['long_error'].unsqueeze(dim=0).cpu().data], dim=0)
         errlat_list = torch.cat([errlat_list, metrics_list['lat_error'].unsqueeze(dim=0).cpu().data], dim=0)
 
-
+        errR_init = torch.cat([errR_init, metrics_list['R_error/init'].unsqueeze(dim=0).cpu().data], dim=0)
+        errt_init = torch.cat([errt_init, metrics_list['t_error/init'].unsqueeze(dim=0).cpu().data], dim=0)
+        errlong_init = torch.cat([errlong_init, metrics_list['long_error/init'].unsqueeze(dim=0).cpu().data], dim=0)
+        errlat_init = torch.cat([errlat_init, metrics_list['lat_error/init'].unsqueeze(dim=0).cpu().data], dim=0)
 
         del pred_, data_
 
@@ -287,7 +295,11 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
              errR=errR_list.cpu().detach().numpy(),
              errt=errt_list.cpu().detach().numpy(),
              errlat=errlat_list.cpu().detach().numpy(),
-             errlong=errlong_list.cpu().detach().numpy())
+             errlong=errlong_list.cpu().detach().numpy(),
+             errR_init=errR_init.cpu().detach().numpy(),
+             errt_init=errt_init.cpu().detach().numpy(),
+             errlat_init=errlat_init.cpu().detach().numpy(),
+             errlong_init=errlong_init.cpu().detach().numpy())
 
     logger.info(f'acc of lat<=0.25:{torch.sum(errlat <= 0.25) / errlat.size(0)}')
     logger.info(f'acc of lat<=0.5:{torch.sum(errlat <= 0.5) / errlat.size(0)}')
