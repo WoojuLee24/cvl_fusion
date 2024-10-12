@@ -58,6 +58,22 @@ class SparseNet(nn.Module):
                                     bias=False),
                 # spconv.ToDense(),
             )
+        elif mode in ['subm0.1']:
+            self.net = spconv.SparseSequential(
+                spconv.SubMConv3d(output_channels, output_channels, kernel_size=3, stride=stride[0], padding=1,
+                                    bias=False),
+            )
+        elif mode in ['subm0.2']:
+            self.net = spconv.SparseSequential(
+                spconv.SubMConv3d(output_channels, output_channels, kernel_size=3, stride=stride[0], padding=1,
+                                    bias=False),
+                nn.ReLU(inplace=True),
+                spconv.SubMConv3d(output_channels, output_channels, kernel_size=3, stride=stride[0], padding=1,
+                                  bias=False),
+                nn.ReLU(inplace=True),
+                spconv.SubMConv3d(output_channels, output_channels, kernel_size=3, stride=stride[0], padding=1,
+                                  bias=False),
+            )
 
     def forward(self, features, coordinates, spatial_shape, batch_size):
         """
