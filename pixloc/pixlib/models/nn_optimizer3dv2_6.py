@@ -239,15 +239,15 @@ class NNrefinev1_0(nn.Module):
         if self.args.version == 0:
             self.cin = [c + 3*self.args.input_dim[2] for c in self.cin]
         elif self.args.version in [1.0, 1.1, 1.2]:
-            self.geo_linear0 = nn.Sequential(nn.ReLU(inplace=True),
+            self.geo_linear0 = nn.Sequential(nn.ReLU(inplace=False),
                                              nn.Linear(self.args.input_dim[0], self.args.input_dim[2]))
-            self.geo_linear1 = nn.Sequential(nn.ReLU(inplace=True),
+            self.geo_linear1 = nn.Sequential(nn.ReLU(inplace=False),
                                              nn.Linear(self.args.input_dim[0], self.args.input_dim[2]))
-            self.geo_linear2 = nn.Sequential(nn.ReLU(inplace=True),
+            self.geo_linear2 = nn.Sequential(nn.ReLU(inplace=False),
                                              nn.Linear(self.args.input_dim[0], self.args.input_dim[2]))
-            self.geo_proj = nn.Sequential(nn.ReLU(inplace=True),
+            self.geo_proj = nn.Sequential(nn.ReLU(inplace=False),
                                           nn.Linear(self.args.input_dim[2], self.args.input_dim[2]),
-                                          nn.ReLU(inplace=True),
+                                          nn.ReLU(inplace=False),
                                           nn.Linear(self.args.input_dim[2], self.args.input_dim[2]))
             if self.args.version == 1.0:
                 self.cin = [c+4*self.args.input_dim[2] for c in self.cin]
@@ -262,11 +262,11 @@ class NNrefinev1_0(nn.Module):
         elif self.args.pose_from == 'rt':
             self.yout = 3
 
-        self.linear0 = nn.Sequential(nn.ReLU(inplace=True),
+        self.linear0 = nn.Sequential(nn.ReLU(inplace=False),
                                      nn.Linear(self.cin[0], self.cout))
-        self.linear1 = nn.Sequential(nn.ReLU(inplace=True),
+        self.linear1 = nn.Sequential(nn.ReLU(inplace=False),
                                      nn.Linear(self.cin[1], self.cout))
-        self.linear2 = nn.Sequential(nn.ReLU(inplace=True),
+        self.linear2 = nn.Sequential(nn.ReLU(inplace=False),
                                      nn.Linear(self.cin[2], self.cout))
 
         # if self.args.pool == 'none':
