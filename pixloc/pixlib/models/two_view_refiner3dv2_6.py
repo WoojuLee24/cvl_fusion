@@ -18,7 +18,7 @@ from pixloc.pixlib.geometry.wrappers import Camera, Pose
 from pixloc.pixlib.models.nn_optimizer3dv2_6 import GridIndexProcessor
 from pixloc.visualization.viz_2d import features_to_RGB,plot_images,plot_keypoints
 from pixloc.pixlib.utils.tensor import map_tensor
-from pixloc.pixlib.models.geo_encoder import DenseEncoder
+from pixloc.pixlib.models.geo_encoder import DenseEncoder, SparseEncoder
 import matplotlib as mpl
 
 from matplotlib import pyplot as plt
@@ -59,7 +59,7 @@ class TwoViewRefiner3D(BaseModel):
             'multi_pose': 1,
             'max_num_points3D': 5000,
             'max_num_out_points3D': 15000,
-            'max_num_features': 5000,
+            'max_num_features': 15000,
             'voxel_shape': [400, 400, 30],
             'max_volume_space': [100, 100, 10],
             'min_volume_space': [-100, -100, -5],
@@ -101,8 +101,25 @@ class TwoViewRefiner3D(BaseModel):
         #                                          self.args.max_volume_space,
         #                                          self.args.min_volume_space)
         if conf.geo_encoder == 'dense':
-            self.geo_encoder = DenseEncoder(cout=self.conf.extractor.output_dim,
+            self.geo_encoder = DenseEncoder(cout=self.conf.extractor.output_dim[0],
                                             normalize=self.conf.normalize_features)
+        elif conf.geo_encoder == 'sp2d_p':
+            self.geo_encoder = SparseEncoder(cin=1,
+                                             cout=self.conf.extractor.output_dim[0],
+                                             mode=conf.geo_encoder,
+                                             max_num_features=self.conf.optimizer.max_num_features)
+        elif conf.geo_encoder == 'sp2d_pxyz':
+            self.geo_encoder = SparseEncoder(cin=4,
+                                             cout=self.conf.extractor.output_dim[0],
+                                             mode=conf.geo_encoder,
+                                             max_num_features=self.conf.optimizer.max_num_features)
+
+        elif conf.geo_encoder == 'sp2d_pz':
+            self.geo_encoder = SparseEncoder(cin=2,
+                                             cout=self.conf.extractor.output_dim[0],
+                                             mode=conf.geo_encoder,
+                                             max_num_features=self.conf.optimizer.max_num_features)
+
 
         if conf.init_target_offset is not None:
             raise ValueError('This entry has been deprecated. Please instead '
@@ -125,34 +142,51 @@ class TwoViewRefiner3D(BaseModel):
         pred['T_q2r_opt_list'] = []
         pred['shiftxyr'] = []
         pred['pose_loss'] = []
-        if self.conf.geo_encoder == 'dense':
-            with torch.no_grad():
-                p3D_ref_init = T_init * p3D_query
-                p2D_ref_init, valid_init = data['ref']['camera'].world2image(p3D_ref_init)
-                # p2D_ref_init = self.grid_processor.process(p2D_ref_init)
-                B, C, A, A = data['ref']['image'].size()
-                p2D_ref_init = torch.clamp(p2D_ref_init, min=0., max=A)
-                p2D_ref_init_ = p2D_ref_init.long()
+
+        with torch.no_grad():
+            p3D_ref_init = T_init * p3D_query
+            p2D_ref_init, valid_init = data['ref']['camera'].world2image(p3D_ref_init)
+            # p2D_ref_init = self.grid_processor.process(p2D_ref_init)
+            B, C, A, A = data['ref']['image'].size()
+            p2D_ref_init = torch.clamp(p2D_ref_init, min=0., max=A)
+            p2D_ref_init_ = p2D_ref_init.long()
+
+            if self.conf.geo_encoder == 'dense':
                 p2D_img = torch.zeros((B, 1, A, A), dtype=torch.float32).to(data['ref']['image'].device)
                 for b in range(B):
                     p2D_img[b, :, p2D_ref_init_[b, :, 1], p2D_ref_init_[b, :, 0]] = 1.
+                p2D_ref_feat = self.geo_encoder(p2D_img, p2D_ref_init)
+                if self.conf.debug:
+                    p3D_ref_gt = data['T_q2r_gt'] * p3D_query
+                    p2D_ref_gt, valid_gt = data['ref']['camera'].world2image(p3D_ref_gt)
+                    # p2D_ref_init = self.grid_processor.process(p2D_ref_init)
+                    B, C, A, A = data['ref']['image'].size()
+                    p2D_ref_gt = torch.clamp(p2D_ref_gt, min=0., max=A)
+                    p2D_ref_gt_ = p2D_ref_gt.long()
+                    p2D_img_gt = torch.zeros((B, 1, A, A), dtype=torch.float32).to(data['ref']['image'].device)
+                    for b in range(B):
+                        p2D_img_gt[b, :, p2D_ref_gt_[b, :, 1], p2D_ref_gt_[b, :, 0]] = 1.
 
-            if self.conf.debug:
-                p3D_ref_gt = data['T_q2r_gt'] * p3D_query
-                p2D_ref_gt, valid_gt = data['ref']['camera'].world2image(p3D_ref_gt)
-                # p2D_ref_init = self.grid_processor.process(p2D_ref_init)
-                B, C, A, A = data['ref']['image'].size()
-                p2D_ref_gt = torch.clamp(p2D_ref_gt, min=0., max=A)
-                p2D_ref_gt_ = p2D_ref_gt.long()
-                p2D_img_gt = torch.zeros((B, 1, A, A), dtype=torch.float32).to(data['ref']['image'].device)
-                for b in range(B):
-                    p2D_img_gt[b, :, p2D_ref_gt_[b, :, 1], p2D_ref_gt_[b, :, 0]] = 1.
-
-                from pixloc.visualization.viz_2d import imsave
-                imsave(p2D_img[0], '/ws/external/debug_images/geo', 'p2D_img')
-                imsave(p2D_img_gt[0], '/ws/external/debug_images/geo', 'p2D_img_gt')
-                imsave(data['ref']['image'][0], '/ws/external/debug_images/geo', 'ref')
-            p2D_ref_feat = self.geo_encoder(p2D_img, p2D_ref_init)
+                    from pixloc.visualization.viz_2d import imsave
+                    imsave(p2D_img[0], '/ws/external/debug_images/geo', 'p2D_img')
+                    imsave(p2D_img_gt[0], '/ws/external/debug_images/geo', 'p2D_img_gt')
+                    imsave(data['ref']['image'][0], '/ws/external/debug_images/geo', 'ref')
+            elif self.conf.geo_encoder == 'sp2d_p':
+                B, N, _ = p2D_ref_init.size()
+                p2D_point = torch.ones((B, N, 1), dtype=torch.float32).to(p2D_ref_init.device)
+                p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
+            elif self.conf.geo_encoder == 'sp2d_pxyz':
+                B, N, _ = p2D_ref_init.size()
+                p2D_point = torch.ones((B, N, 1), dtype=torch.float32).to(p2D_ref_init.device)
+                p3D_ref_init_normalized = (p3D_ref_init - p3D_ref_init.mean(dim=1, keepdim=True)) / (p3D_ref_init.std(dim=1, keepdim=True) + 1e-6)
+                p2D_point = torch.cat([p2D_point, p3D_ref_init_normalized], dim=-1)
+                p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
+            elif self.conf.geo_encoder == 'sp2d_pz':
+                B, N, _ = p2D_ref_init.size()
+                p2D_point = torch.ones((B, N, 1), dtype=torch.float32).to(p2D_ref_init.device)
+                p3D_ref_init_normalized = (p3D_ref_init - p3D_ref_init.mean(dim=1, keepdim=True)) / (p3D_ref_init.std(dim=1, keepdim=True) + 1e-6)
+                p2D_point = torch.cat([p2D_point, p3D_ref_init_normalized[..., -1:]], dim=-1)
+                p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
 
         if self.conf.debug:
             path = 'debug_images/geo'  # 'visualizations/dense'
