@@ -103,19 +103,16 @@ class TwoViewRefiner3D(BaseModel):
         if conf.geo_encoder == 'dense':
             self.geo_encoder = DenseEncoder(cout=self.conf.extractor.output_dim[0],
                                             normalize=self.conf.normalize_features)
-        elif conf.geo_encoder == 'sp2d_p':
-            self.geo_encoder = SparseEncoder(cin=1,
-                                             cout=self.conf.extractor.output_dim[0],
-                                             mode=conf.geo_encoder,
-                                             max_num_features=self.conf.optimizer.max_num_features)
-        elif conf.geo_encoder == 'sp2d_pxyz':
-            self.geo_encoder = SparseEncoder(cin=4,
-                                             cout=self.conf.extractor.output_dim[0],
-                                             mode=conf.geo_encoder,
-                                             max_num_features=self.conf.optimizer.max_num_features)
-
-        elif conf.geo_encoder == 'sp2d_pz':
-            self.geo_encoder = SparseEncoder(cin=2,
+        elif conf.geo_encoder in ['sp2d_p', 'sp2d_pxyz', 'sp2d_pz', 'sp2d_pza']:
+            if conf.geo_encoder == 'sp2d_p':
+                cin = 1
+            elif conf.geo_encoder == 'sp2d_pxyz':
+                cin = 4
+            elif conf.geo_encoder == 'sp2d_pz':
+                cin = 2
+            elif conf.geo_encoder == 'sp2d_pza':
+                cin = 3
+            self.geo_encoder = SparseEncoder(cin=cin,
                                              cout=self.conf.extractor.output_dim[0],
                                              mode=conf.geo_encoder,
                                              max_num_features=self.conf.optimizer.max_num_features)
@@ -187,6 +184,14 @@ class TwoViewRefiner3D(BaseModel):
                 p3D_ref_init_normalized = (p3D_ref_init - p3D_ref_init.mean(dim=1, keepdim=True)) / (p3D_ref_init.std(dim=1, keepdim=True) + 1e-6)
                 p2D_point = torch.cat([p2D_point, p3D_ref_init_normalized[..., -1:]], dim=-1)
                 p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
+            elif self.conf.geo_encoder == 'sp2d_pza':
+                B, N, _ = p2D_ref_init.size()
+                p2D_point = torch.ones((B, N, 1), dtype=torch.float32).to(p2D_ref_init.device)
+                p3D_ref_init_normalized = (p3D_ref_init - p3D_ref_init.mean(dim=1, keepdim=True)) / (
+                            p3D_ref_init.std(dim=1, keepdim=True) + 1e-6)
+                angle = p3D_query[..., 2] / torch.sqrt(p3D_query[..., 0] ** 2 + p3D_query[..., 2] ** 2)
+                p2D_point = torch.cat([p2D_point, p3D_ref_init_normalized[..., -1:], angle.unsqueeze(dim=-1)], dim=-1)
+                p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
 
         if self.conf.debug:
             path = 'debug_images/geo'  # 'visualizations/dense'
@@ -228,6 +233,10 @@ class TwoViewRefiner3D(BaseModel):
 
             imsave(grd_proj_color.permute(2, 0, 1), f'/ws/external/{path}', '1grd_proj_color_gt')
             imsave(sat_color_gt.permute(2, 0, 1), f'/ws/external/{path}', '1sat_color_gt')
+
+            ## angle ##
+            angle_proj = project(angle.unsqueeze(dim=-1).repeat(1, 1, 3), data['ref']['image'], p2D_r_gt)
+            imsave(angle_proj.permute(2, 0, 1), f'/ws/external/{path}', '1angle_proj_gt')
 
 
         for i in reversed(range(len(self.extractor.scales))):
@@ -318,6 +327,18 @@ class TwoViewRefiner3D(BaseModel):
                     1 + torch.exp(10 * (1 - (loss_init + loss_fusion_init + 1e-8) / (loss_gt + loss_fusion_gt + 1e-8))))
                 pred['pose_loss'].append(diff_loss)
 
+            elif self.conf.optimizer.pose_loss == 'triplet3':
+                loss_gt = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_gt'], cam_ref, mask=mask, W_ref_query=W_ref_q)
+                loss_init = self.preject_l1loss(opt, p3D_query, F_ref, F_q, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q)
+                diff_loss1 = self.conf.optimizer.pose_lambda * torch.log(1 + torch.exp(10*(1- (loss_init + 1e-8) / (loss_gt + 1e-8))))
+
+                loss_gt = self.preject_geo_l1loss(opt, p3D_query, F_ref, F_q, p2D_ref_feat, data['T_q2r_gt'], cam_ref, mask=mask, W_ref_query=W_ref_q, scale=i)
+                loss_init = self.preject_geo_l1loss(opt, p3D_query, F_ref, F_q, p2D_ref_feat, data['T_q2r_init'], cam_ref, mask=mask, W_ref_query=W_ref_q, scale=i)
+                diff_loss2 = self.conf.optimizer.pose_lambda * torch.log(1 + torch.exp(10 * (1 - (loss_init + 1e-8) / (loss_gt + 1e-8))))
+
+                diff_loss = diff_loss1 + diff_loss2
+                pred['pose_loss'].append(diff_loss)
+
             elif self.conf.optimizer.pose_loss == 'rr':
                 diff_loss = 0
                 for i, res in enumerate(opt.nnrefine.r_sum[2-i]):
@@ -374,6 +395,38 @@ class TwoViewRefiner3D(BaseModel):
         loss = cost * valid.float()
         if w_unc is not None:
             loss = loss * w_unc
+
+        return torch.sum(loss, dim=-1)/(torch.sum(valid)+1e-6)
+
+    def preject_geo_l1loss(self, opt, p3D, F_ref, F_query, p2D_ref_feat,
+                           T_gt, camera, mask=None, W_ref_query= None, scale=None):
+        args = (camera, p3D, F_ref, F_query, W_ref_query)
+        p3D_r = T_gt * p3D  # q_3d to q2r_3d
+        p2D, visible = camera.world2image(p3D_r)  # q2r_3d to q2r_2d
+        ref_feat, valid, gradients = opt.interpolator(F_ref, p2D, return_gradients=False)  # get g2r 2d features
+
+        if 2 - scale == 0:
+            geo_proj = opt.nnrefine.geo_linear0(ref_feat)
+        elif 2 - scale == 1:
+            geo_proj = opt.nnrefine.geo_linear1(ref_feat)
+        elif 2 - scale == 2:
+            geo_proj = opt.nnrefine.geo_linear2(ref_feat)
+        geo_proj = opt.nnrefine.geo_proj(geo_proj)
+        p2D_ref_feat = opt.nnrefine.geo_proj(p2D_ref_feat)
+        res = geo_proj - p2D_ref_feat
+
+        # res, valid, w_unc, _, _ = opt.cost_fn.residuals(T_gt, *args)
+        # if mask is not None:
+        #     valid &= mask
+
+
+
+        # compute the cost and aggregate the weights
+        cost = (res ** 2).sum(-1)
+        cost, w_loss, _ = opt.loss_fn(cost) # robust cost
+        loss = cost * valid.float()
+        # if w_unc is not None:
+        #     loss = loss * w_unc
 
         return torch.sum(loss, dim=-1)/(torch.sum(valid)+1e-6)
 

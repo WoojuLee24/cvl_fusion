@@ -44,7 +44,7 @@ class SparseEncoder(nn.Module):
         # # Batch normalization and activation
         # self.batch_norm3d = nn.BatchNorm1d(output_channels)
         # self.relu = nn.ReLU(inplace=True)
-        if mode in ['sp2d_p', 'sp2d_pxyz', 'sp2d_pz']:
+        if mode in ['sp2d_p', 'sp2d_pxyz', 'sp2d_pz', 'sp2d_pza']:
             self.net = spconv.SparseSequential(
                 spconv.SubMConv2d(cin, cout, kernel_size=3, stride=1, padding=1, bias=False),
                 nn.ReLU(),
@@ -122,7 +122,7 @@ class SparseEncoder(nn.Module):
         # Reshape coordinates to [N_total, 4] where the first column is batch index
         batch_indices = torch.arange(batch_size).view(-1, 1, 1).expand(batch_size, coordinates.shape[1], 1).to(coordinates.device)  # [B, N, 1]
         indices = torch.cat([batch_indices, coordinates], dim=-1)  # [B, N, 4] (batch index + XYZ coordinates)
-        if self.mode in ['sp2d_p', 'sp2d_pxyz', 'sp2d_pz']:
+        if self.mode in ['sp2d_p', 'sp2d_pxyz', 'sp2d_pz', 'sp2d_pza']:
             indices = indices.view(-1, 3)  # Flatten to [B*N, 4]
         else:
             indices = indices.view(-1, 4)  # Flatten to [B*N, 4]
