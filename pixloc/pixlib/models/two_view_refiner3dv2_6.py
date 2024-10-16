@@ -277,10 +277,13 @@ class TwoViewRefiner3D(BaseModel):
             if self.conf.normalize_features in ['l2', True]:
                 F_q = nnF.normalize(F_q, dim=2)  # B x N x C
                 F_ref = nnF.normalize(F_ref, dim=1)  # B x C x W x H
+                if self.conf.normalize_features != 'none':
+                    p2D_ref_feat = nnF.normalize(p2D_ref_feat, dim=2)
             elif self.conf.normalize_features == 'zsn':
                 F_q = (F_q - F_q.mean(dim=2, keepdim=True)) / (F_q.std(dim=2, keepdim=True) + 1e-6)
                 F_ref = (F_ref - F_ref.mean(dim=1, keepdim=True)) / (F_ref.std(dim=1, keepdim=True) + 1e-6)
-
+                if self.conf.normalize_features != 'none':
+                    p2D_ref_feat = (p2D_ref_feat - p2D_ref_feat.mean(dim=1, keepdim=True)) / (p2D_ref_feat.std(dim=1, keepdim=True) + 1e-6)
 
             # if self.conf.optimizer.multi_pose > 1:
             #     B = F_q.size(0)
