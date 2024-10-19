@@ -238,18 +238,22 @@ class NNrefinev1_0(nn.Module):
 
         if self.args.version == 0:
             self.cin = [c + 3*self.args.input_dim[2] for c in self.cin]
-        elif self.args.version in [1.0, 1.1, 1.2]:
+        elif self.args.version in [1.0, 1.1, 1.2, 1.01]:
             self.geo_linear0 = nn.Sequential(nn.ReLU(inplace=False),
                                              nn.Linear(self.args.input_dim[0], self.args.input_dim[2]))
             self.geo_linear1 = nn.Sequential(nn.ReLU(inplace=False),
                                              nn.Linear(self.args.input_dim[0], self.args.input_dim[2]))
             self.geo_linear2 = nn.Sequential(nn.ReLU(inplace=False),
                                              nn.Linear(self.args.input_dim[0], self.args.input_dim[2]))
-            self.geo_proj = nn.Sequential(nn.ReLU(inplace=False),
-                                          nn.Linear(self.args.input_dim[2], self.args.input_dim[2]),
-                                          nn.ReLU(inplace=False),
-                                          nn.Linear(self.args.input_dim[2], self.args.input_dim[2]))
-            if self.args.version == 1.0:
+
+            if self.args.version in [1.01]:
+                self.geo_proj = nn.Identity()
+            else:
+                self.geo_proj = nn.Sequential(nn.ReLU(inplace=False),
+                                              nn.Linear(self.args.input_dim[2], self.args.input_dim[2]),
+                                              nn.ReLU(inplace=False),
+                                              nn.Linear(self.args.input_dim[2], self.args.input_dim[2]))
+            if self.args.version in [1.0, 1.01]:
                 self.cin = [c+4*self.args.input_dim[2] for c in self.cin]
             elif self.args.version == 1.1:
                 self.cin = [c+2*self.args.input_dim[2] for c in self.cin]
@@ -379,7 +383,7 @@ class NNrefinev1_0(nn.Module):
         if self.args.version in [0]:
             # default
             r = torch.cat([r, ref_feat, query_feat, p3D_ref_feat], dim=-1)
-        elif self.args.version in [1.0, 1.1, 1.2]:
+        elif self.args.version in [1.0, 1.1, 1.2, 1.01]:
             # geometric vs RGB
             if 2 - scale == 0:
                 geo_proj = self.geo_linear0(ref_feat)
@@ -391,7 +395,7 @@ class NNrefinev1_0(nn.Module):
             p2D_ref_feat = self.geo_proj(p2D_ref_feat)
             r_geo = geo_proj - p2D_ref_feat
 
-            if self.args.version == 1.0:
+            if self.args.version in [1.0, 1.01]:
                 r = torch.cat([r, r_geo, ref_feat, query_feat, p3D_ref_feat], dim=-1)
             elif self.args.version == 1.1:
                 r = torch.cat([r, r_geo, ref_feat], dim=-1)
