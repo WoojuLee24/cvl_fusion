@@ -193,50 +193,52 @@ class TwoViewRefiner3D(BaseModel):
                 p2D_point = torch.cat([p2D_point, p3D_ref_init_normalized[..., -1:], angle.unsqueeze(dim=-1)], dim=-1)
                 p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
 
+
         if self.conf.debug:
-            path = 'debug_images/geo'  # 'visualizations/dense'
-            from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
-            r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(),
-                                                               data['ref']['camera'].cuda(),
-                                                               data['query']['image'], data['ref']['image'], data)
+            with torch.no_grad():
+                path = 'debug_images/kitti3_s'  # 'visualizations/dense'
+                from pixloc.pixlib.geometry.wrappers import project_grd_to_map, project_map_to_grd
+                r2q_img, r2q_mask, p3d_grd, _ = project_map_to_grd(data['T_q2r_gt'], data['query']['camera'].cuda(),
+                                                                   data['ref']['camera'].cuda(),
+                                                                   data['query']['image'], data['ref']['image'], data)
 
-            q2r_img, q2r_mask, _, _ = project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
-                                                         data['ref']['camera'].cuda(),
-                                                         data['query']['image'], data['ref']['image'], data)
+                q2r_img, q2r_mask, _, _ = project_grd_to_map(data['T_q2r_gt'], data['query']['camera'].cuda(),
+                                                             data['ref']['camera'].cuda(),
+                                                             data['query']['image'], data['ref']['image'], data)
 
-            from pixloc.visualization.viz_2d import imsave
-            imsave(q2r_img[0], f'/ws/external/{path}', '0q2r')
-            imsave(data['query']['image'][0], f'/ws/external/{path}', '0grd')
-            imsave(data['ref']['image'][0], f'/ws/external/{path}', '0sat')
-            imsave(r2q_img[0], f'/ws/external/{path}', '1r2q')
-            imsave(data['query']['image'][0], f'/ws/external/{path}', '1grd')
+                from pixloc.visualization.viz_2d import imsave
+                imsave(q2r_img[0], f'/ws/external/{path}', '0q2r')
+                imsave(data['query']['image'][0], f'/ws/external/{path}', '0grd')
+                imsave(data['ref']['image'][0], f'/ws/external/{path}', '0sat')
+                imsave(r2q_img[0], f'/ws/external/{path}', '1r2q')
+                imsave(data['query']['image'][0], f'/ws/external/{path}', '1grd')
 
-            imsave(data['ref']['image'][0], f'/ws/external/{path}', '1sat')
-            # print(f"roll: {data['roll']}, pitch: {data['pitch']}")
+                imsave(data['ref']['image'][0], f'/ws/external/{path}', '1sat')
+                # print(f"roll: {data['roll']}, pitch: {data['pitch']}")
 
-            p3D_q = data['query']['points3D']
-            p3D_r_gt = data['T_q2r_gt'] * p3D_q
-            p3D_r_init = data['T_q2r_init'] * p3D_q
+                p3D_q = data['query']['points3D']
+                p3D_r_gt = data['T_q2r_gt'] * p3D_q
+                p3D_r_init = data['T_q2r_init'] * p3D_q
 
-            cam_r = data['ref']['camera']
-            p2D_q, valid_q = data['query']['camera'].world2image(data['query']['T_w2cam'] * p3D_q)
-            p2D_r_gt, valid_r = cam_r.world2image(p3D_r_gt)
-            p2D_r_init, _ = cam_r.world2image(p3D_r_init)
+                cam_r = data['ref']['camera']
+                p2D_q, valid_q = data['query']['camera'].world2image(data['query']['T_w2cam'] * p3D_q)
+                p2D_r_gt, valid_r = cam_r.world2image(p3D_r_gt)
+                p2D_r_init, _ = cam_r.world2image(p3D_r_init)
 
-            from pixloc.pixlib.geometry.interpolation import interpolate_tensor_bilinear
-            from pixloc.visualize_3dvoxel import project
-            F_q, _ = interpolate_tensor_bilinear(data['query']['image'], p2D_q)
-            F_r_gt, _ = interpolate_tensor_bilinear(data['ref']['image'], p2D_r_gt)
+                from pixloc.pixlib.geometry.interpolation import interpolate_tensor_bilinear
+                from pixloc.visualize_3dvoxel import project
+                F_q, _ = interpolate_tensor_bilinear(data['query']['image'], p2D_q*valid_q.unsqueeze(dim=-1))
+                F_r_gt, _ = interpolate_tensor_bilinear(data['ref']['image'], p2D_r_gt*valid_r.unsqueeze(dim=-1))
 
-            grd_proj_color = project(F_q, data['ref']['image'], p2D_r_gt)
-            sat_color_gt = project(F_r_gt, data['ref']['image'], p2D_r_gt)
+                grd_proj_color = project(F_q, data['ref']['image'], p2D_r_gt*valid_r.unsqueeze(dim=-1))
+                sat_color_gt = project(F_r_gt, data['ref']['image'], p2D_r_gt*valid_r.unsqueeze(dim=-1))
 
-            imsave(grd_proj_color.permute(2, 0, 1), f'/ws/external/{path}', '1grd_proj_color_gt')
-            imsave(sat_color_gt.permute(2, 0, 1), f'/ws/external/{path}', '1sat_color_gt')
+                imsave(grd_proj_color.permute(2, 0, 1), f'/ws/external/{path}', '1grd_proj_color_gt')
+                imsave(sat_color_gt.permute(2, 0, 1), f'/ws/external/{path}', '1sat_color_gt')
 
-            ## angle ##
-            angle_proj = project(angle.unsqueeze(dim=-1).repeat(1, 1, 3), data['ref']['image'], p2D_r_gt)
-            imsave(angle_proj.permute(2, 0, 1), f'/ws/external/{path}', '1angle_proj_gt')
+                # ## angle ##
+                # angle_proj = project(angle.unsqueeze(dim=-1).repeat(1, 1, 3), data['ref']['image'], p2D_r_gt)
+                # imsave(angle_proj.permute(2, 0, 1), f'/ws/external/{path}', '1angle_proj_gt')
 
 
         for i in reversed(range(len(self.extractor.scales))):
