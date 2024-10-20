@@ -69,7 +69,7 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
         with torch.no_grad():
             pred = model(data)
             losses = loss_fn(pred, data)
-            metrics = metrics_fn(pred, data, conf.data.name)
+            metrics = metrics_fn(pred, data, loader.dataset.conf.name)
 
             errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
             errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
@@ -775,10 +775,11 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         # cp_path = str(output_dir / (cp_name + '.tar'))
         # torch.save(checkpoint, cp_path)
 
-        data_conf = copy.deepcopy(conf.data)
-        # load dataset
-        dataset = get_dataset(data_conf.name)(data_conf)
-        test_basic(dataset, model, wandb_logger, conf, args)
+        # if model.conf.debug == True:
+        #     data_conf = copy.deepcopy(conf.data)
+        #     # load dataset
+        #     dataset = get_dataset(data_conf.name)(data_conf)
+        #     test_basic(dataset, model, wandb_logger, conf, args)
 
 
         for it, data in enumerate(train_loader):
