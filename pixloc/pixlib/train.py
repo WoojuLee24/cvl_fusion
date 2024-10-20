@@ -69,7 +69,7 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
         with torch.no_grad():
             pred = model(data)
             losses = loss_fn(pred, data)
-            metrics = metrics_fn(pred, data)
+            metrics = metrics_fn(pred, data, conf.data.name)
 
             errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
             errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
@@ -255,14 +255,15 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
     errlong_init = torch.tensor([])
     errlat_init = torch.tensor([])
 
+
     for idx, data in enumerate(tqdm(test_loader)):
         if idx == 5 and model.conf.debug:
             break
         data_ = batch_to_device(data, device='cuda')
         # logger.set(data_)
         pred_ = model(data_)
-        metrics = model.metrics(pred_, data_)
-        metrics_list = model.metrics_analysis(pred_, data_)
+        metrics = model.metrics(pred_, data_, conf.data.name)
+        metrics_list = model.metrics_analysis(pred_, data_, conf.data.name)
 
         errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
         errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
@@ -774,6 +775,12 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
         # cp_path = str(output_dir / (cp_name + '.tar'))
         # torch.save(checkpoint, cp_path)
 
+        data_conf = copy.deepcopy(conf.data)
+        # load dataset
+        dataset = get_dataset(data_conf.name)(data_conf)
+        test_basic(dataset, model, wandb_logger, conf, args)
+
+
         for it, data in enumerate(train_loader):
             tot_it = len(train_loader)*epoch + it
             model.train()
@@ -783,7 +790,7 @@ def training(rank, conf, output_dir, args, wandb_logger=None):
             pred = model(data)
             losses = loss_fn(pred, data)
             loss = torch.mean(losses['total'])
-            metrics = metrics_fn(pred, data)
+            metrics = metrics_fn(pred, data, conf.data.name)
 
             with torch.no_grad():
                 errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
