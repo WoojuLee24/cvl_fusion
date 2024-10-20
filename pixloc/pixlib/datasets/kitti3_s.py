@@ -328,7 +328,7 @@ class _Dataset(Dataset):
 
         shift = Pose.from_Rt(R_yaw, T)
         q2r_gt = shift @ q2r_init   # TODO: metrics should be changed
-        shift_gt = np.array([T[0], T[1], yaw])
+        shift_gt = np.array([T[0], T[1], yaw_rad])
         shift_range = np.array([TShiftRange, TShiftRange, YawShiftRange], dtype=np.float32)
 
         # apply offset on the ref camera
