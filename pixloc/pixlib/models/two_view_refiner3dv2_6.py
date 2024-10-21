@@ -103,14 +103,17 @@ class TwoViewRefiner3D(BaseModel):
         if conf.geo_encoder == 'dense':
             self.geo_encoder = DenseEncoder(cout=self.conf.extractor.output_dim[0],
                                             normalize=self.conf.normalize_features)
-        elif conf.geo_encoder in ['sp2d_p', 'sp2d_pxyz', 'sp2d_pz', 'sp2d_pza']:
+        elif conf.geo_encoder in ['sp2d_p', 'sp2d_pxyz', 'sp2d_pz', 'sp2d_pza',
+                                  'sp2d_pxyza', 'sp2d_xyza', 'sp2d_xyz']:
             if conf.geo_encoder == 'sp2d_p':
                 cin = 1
-            elif conf.geo_encoder == 'sp2d_pxyz':
+            elif conf.geo_encoder == 'sp2d_pxyza':
+                cin = 5
+            elif conf.geo_encoder in ['sp2d_pxyz', 'sp2d_xyza']:
                 cin = 4
             elif conf.geo_encoder == 'sp2d_pz':
                 cin = 2
-            elif conf.geo_encoder == 'sp2d_pza':
+            elif conf.geo_encoder in ['sp2d_pza', 'sp2d_xyz']:
                 cin = 3
             self.geo_encoder = SparseEncoder(cin=cin,
                                              cout=self.conf.extractor.output_dim[0],
@@ -172,11 +175,25 @@ class TwoViewRefiner3D(BaseModel):
                 B, N, _ = p2D_ref_init.size()
                 p2D_point = torch.ones((B, N, 1), dtype=torch.float32).to(p2D_ref_init.device)
                 p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
-            elif self.conf.geo_encoder == 'sp2d_pxyz':
+            elif self.conf.geo_encoder == 'sp2d_pxyza':
                 B, N, _ = p2D_ref_init.size()
                 p2D_point = torch.ones((B, N, 1), dtype=torch.float32).to(p2D_ref_init.device)
                 p3D_ref_init_normalized = (p3D_ref_init - p3D_ref_init.mean(dim=1, keepdim=True)) / (p3D_ref_init.std(dim=1, keepdim=True) + 1e-6)
-                p2D_point = torch.cat([p2D_point, p3D_ref_init_normalized], dim=-1)
+                angle = p3D_query[..., 2] / torch.sqrt(p3D_query[..., 0] ** 2 + p3D_query[..., 2] ** 2)
+                p2D_point = torch.cat([p2D_point, p3D_ref_init_normalized, angle.unsqueeze(dim=-1)], dim=-1)
+                p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
+            elif self.conf.geo_encoder == 'sp2d_xyza':
+                B, N, _ = p2D_ref_init.size()
+                p3D_ref_init_normalized = (p3D_ref_init - p3D_ref_init.mean(dim=1, keepdim=True)) / (
+                            p3D_ref_init.std(dim=1, keepdim=True) + 1e-6)
+                angle = p3D_query[..., 2] / torch.sqrt(p3D_query[..., 0] ** 2 + p3D_query[..., 2] ** 2)
+                p2D_point = torch.cat([p3D_ref_init_normalized, angle.unsqueeze(dim=-1)], dim=-1)
+                p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
+            elif self.conf.geo_encoder == 'sp2d_xyz':
+                B, N, _ = p2D_ref_init.size()
+                p3D_ref_init_normalized = (p3D_ref_init - p3D_ref_init.mean(dim=1, keepdim=True)) / (
+                            p3D_ref_init.std(dim=1, keepdim=True) + 1e-6)
+                p2D_point = torch.cat([p3D_ref_init_normalized], dim=-1)
                 p2D_ref_feat = self.geo_encoder(p2D_point, p2D_ref_init_, spatial_shape=(A, A), batch_size=B)
             elif self.conf.geo_encoder == 'sp2d_pz':
                 B, N, _ = p2D_ref_init.size()
