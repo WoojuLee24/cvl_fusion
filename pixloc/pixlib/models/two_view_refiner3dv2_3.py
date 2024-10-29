@@ -642,39 +642,47 @@ class TwoViewRefiner3D(BaseModel):
 
         return metrics
 
-
-    def metrics(self, pred, data):
+    def metrics(self, pred, data, mode='shan'):
+        T_q2r_gt = data['T_q2r_gt']
         T_r2q_gt = data['T_q2r_gt'].inv()
 
         @torch.no_grad()
         def scaled_pose_error(T_q2r):
-            # err_R, err_t = (T_r2q_gt@T_q2r).magnitude()
-            # err_lat, err_long = (T_r2q_gt@T_q2r).magnitude_latlong()
-            err_R, err_t = (T_q2r @ T_r2q_gt).magnitude()
-            err_lat, err_long = (T_q2r @ T_r2q_gt).magnitude_latlong()
+            if mode == 'kitti3_s':
+                T_r2q = T_q2r.inv()
+                err_R, err_t = (T_q2r_gt @ T_r2q).magnitude()
+                err_lat, err_long = (T_q2r_gt @ T_r2q).magnitude_latlong()
+            else:
+                err_R, err_t = (T_q2r @ T_r2q_gt).magnitude()
+                err_lat, err_long = (T_q2r @ T_r2q_gt).magnitude_latlong()
             return err_R, err_t, err_lat, err_long
 
         metrics = {}
         for i, T_opt in enumerate(pred['T_q2r_opt']):
             err = scaled_pose_error(T_opt)
-            metrics[f'R_error/{i}'], metrics[f't_error/{i}'], metrics[f'lat_error/{i}'], metrics[f'long_error/{i}'] = err
-        metrics['R_error'], metrics['t_error'], metrics['lat_error'], metrics[f'long_error']  = err
+            metrics[f'R_error/{i}'], metrics[f't_error/{i}'], metrics[f'lat_error/{i}'], metrics[
+                f'long_error/{i}'] = err
+        metrics['R_error'], metrics['t_error'], metrics['lat_error'], metrics[f'long_error'] = err
 
         err_init = scaled_pose_error(pred['T_q2r_init'][0])
-        metrics['R_error/init'], metrics['t_error/init'], metrics['lat_error/init'], metrics[f'long_error/init'] = err_init
+        metrics['R_error/init'], metrics['t_error/init'], metrics['lat_error/init'], metrics[
+            f'long_error/init'] = err_init
 
         return metrics
 
-
-    def metrics_analysis(self, pred, data):
+    def metrics_analysis(self, pred, data, mode='shan'):
+        T_q2r_gt = data['T_q2r_gt']
         T_r2q_gt = data['T_q2r_gt'].inv()
 
         @torch.no_grad()
         def scaled_pose_error(T_q2r):
-            # err_R, err_t = (T_r2q_gt@T_q2r).magnitude()
-            # err_lat, err_long = (T_r2q_gt@T_q2r).magnitude_latlong()
-            err_R, err_t = (T_q2r @ T_r2q_gt).magnitude()
-            err_lat, err_long = (T_q2r @ T_r2q_gt).magnitude_latlong()
+            if mode == 'kitti3_s':
+                T_r2q = T_q2r.inv()
+                err_R, err_t = (T_q2r_gt @ T_r2q).magnitude()
+                err_lat, err_long = (T_q2r_gt @ T_r2q).magnitude_latlong()
+            else:
+                err_R, err_t = (T_q2r @ T_r2q_gt).magnitude()
+                err_lat, err_long = (T_q2r @ T_r2q_gt).magnitude_latlong()
             return err_R, err_t, err_lat, err_long
 
         metrics = {}
@@ -686,10 +694,9 @@ class TwoViewRefiner3D(BaseModel):
         # error pred
         pred['T_q2r_opt_list'] = list(itertools.chain(*pred['T_q2r_opt_list']))
         R_error, t_error, lat_error, long_error = (torch.tensor([]).to(pred['T_q2r_init'][0].device),
-                                                  torch.tensor([]).to(pred['T_q2r_init'][0].device),
-                                                  torch.tensor([]).to(pred['T_q2r_init'][0].device),
-                                                  torch.tensor([]).to(pred['T_q2r_init'][0].device))
-
+                                                   torch.tensor([]).to(pred['T_q2r_init'][0].device),
+                                                   torch.tensor([]).to(pred['T_q2r_init'][0].device),
+                                                   torch.tensor([]).to(pred['T_q2r_init'][0].device))
 
         for j, T_opt in enumerate(pred['T_q2r_opt_list']):
             err = scaled_pose_error(T_opt)
