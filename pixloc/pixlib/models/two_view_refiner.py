@@ -208,7 +208,7 @@ class TwoViewRefiner(BaseModel):
 
         return losses
 
-    def metrics(self, pred, data):
+    def metrics(self, pred, data, mode='shan'):
         T_q2r_gt =  data['T_q2r_gt']
         T_r2q_gt = data['T_q2r_gt'].inv()
 
@@ -234,7 +234,7 @@ class TwoViewRefiner(BaseModel):
 
         return metrics
 
-    def metrics_analysis(self, pred, data):
+    def metrics_analysis(self, pred, data, mode='shan'):
         T_q2r_gt =  data['T_q2r_gt']
         T_r2q_gt = data['T_q2r_gt'].inv()
 

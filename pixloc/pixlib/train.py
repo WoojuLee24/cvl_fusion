@@ -62,6 +62,8 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     errR = torch.tensor([])
     errlong = torch.tensor([])
     errlat = torch.tensor([])
+    errt = torch.tensor([])
+
     for i, data in enumerate(tqdm(loader, desc='Evaluation', ascii=True, disable=not pbar)):
         if i == 5 and model.conf.debug:
             break
@@ -74,6 +76,7 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
             errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
             errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
             errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
+            errt = torch.cat([errt, metrics['t_error'].cpu().data], dim=0)
 
             del pred, data
         numbers = {**metrics, **{'loss/'+k: v for k, v in losses.items()}}
@@ -98,6 +101,11 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     logger.info(f'acc of long<=1:{(torch.sum(errlong <= 1) / errlong.size(0)).cpu()}')
     logger.info(f'acc of long<=2:{(torch.sum(errlong <= 2) / errlong.size(0)).cpu()}')
 
+    logger.info(f'acc of dis<=0.25:{(torch.sum(errt <= 0.25) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=0.5:{(torch.sum(errt <= 0.5) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=1:{(torch.sum(errt <= 1) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=2:{(torch.sum(errt <= 2) / errt.size(0)).cpu()}')
+
     # logger.info(f'acc of R<=0.5:{torch.sum(errR <= 0.5) / errR.size(0)}')
     logger.info(f'acc of R<=1:{(torch.sum(errR <= 1) / errR.size(0)).cpu()}')
     logger.info(f'acc of R<=2:{(torch.sum(errR <= 2) / errR.size(0)).cpu()}')
@@ -106,6 +114,8 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     logger.info(f'mean errR:{torch.mean(errR).cpu()}, errlat:{torch.mean(errlat).cpu()}, errlong:{torch.mean(errlong).cpu()}')
     logger.info(f'var errR:{torch.var(errR).cpu()}, errlat:{torch.var(errlat).cpu()}, errlong:{torch.var(errlong).cpu()}')
     logger.info(f'median errR:{torch.median(errR).cpu()}, errlat:{torch.median(errlat).cpu()}, errlong:{torch.median(errlong).cpu()}')
+
+    logger.info(f'mean errt:{torch.mean(errt).cpu()}, var errt:{torch.var(errt).cpu()}, median errt:{torch.median(errt).cpu()}')
 
     wandb_features = dict()
     wandb_features.update({'val/lat 0.25m': (torch.sum(errlat <= 0.25) / errlat.size(0)).cpu()})
@@ -121,6 +131,13 @@ def do_evaluation(model, loader, device, loss_fn, metrics_fn, conf, pbar=True, w
     wandb_features.update({'val/mean errlon': torch.mean(errlong).cpu()})
     wandb_features.update({'val/var errlon': torch.var(errlong).cpu()})
     wandb_features.update({'val/median errlon': torch.median(errlong).cpu()})
+
+    wandb_features.update({'val/dis 0.25m': (torch.sum(errt <= 1) / errt.size(0)).cpu()})
+    wandb_features.update({'val/dis 0.5m': (torch.sum(errt <= 1) / errt.size(0)).cpu()})
+    wandb_features.update({'val/dis 1m': (torch.sum(errt <= 1) / errt.size(0)).cpu()})
+    wandb_features.update({'val/mean errt': torch.mean(errt).cpu()})
+    wandb_features.update({'val/var errt': torch.var(errt).cpu()})
+    wandb_features.update({'val/median errt': torch.median(errt).cpu()})
 
     wandb_features.update({'val/rot 1': (torch.sum(errR <= 1) / errR.size(0)).cpu()})
     wandb_features.update({'val/rot 2': (torch.sum(errR <= 2) / errR.size(0)).cpu()})
@@ -244,6 +261,7 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
     errR = torch.tensor([])
     errlong = torch.tensor([])
     errlat = torch.tensor([])
+    errt = torch.tensor([])
 
     errR_list = torch.tensor([])
     errt_list = torch.tensor([])
@@ -268,6 +286,7 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
         errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
         errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
         errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
+        errt = torch.cat([errt, metrics['t_error'].cpu().data], dim=0)
 
         errR_list = torch.cat([errR_list, metrics_list['R_error'].unsqueeze(dim=0).cpu().data], dim=0)
         errt_list = torch.cat([errt_list, metrics_list['t_error'].unsqueeze(dim=0).cpu().data], dim=0)
@@ -312,6 +331,11 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
     logger.info(f'acc of long<=1:{torch.sum(errlong <= 1) / errlong.size(0)}')
     logger.info(f'acc of long<=2:{torch.sum(errlong <= 2) / errlong.size(0)}')
 
+    logger.info(f'acc of dis<=0.25:{(torch.sum(errt <= 0.25) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=0.5:{(torch.sum(errt <= 0.5) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=1:{(torch.sum(errt <= 1) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=2:{(torch.sum(errt <= 2) / errt.size(0)).cpu()}')
+
     logger.info(f'acc of R<=1:{torch.sum(errR <= 1) / errR.size(0)}')
     logger.info(f'acc of R<=2:{torch.sum(errR <= 2) / errR.size(0)}')
     logger.info(f'acc of R<=4:{torch.sum(errR <= 4) / errR.size(0)}')
@@ -319,6 +343,7 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
     logger.info(f'mean errR:{torch.mean(errR)}, errlat:{torch.mean(errlat)}, errlong:{torch.mean(errlong)}')
     logger.info(f'var errR:{torch.var(errR)}, errlat:{torch.var(errlat)}, errlong:{torch.var(errlong)}')
     logger.info(f'median errR:{torch.median(errR)}, errlat:{torch.median(errlat)}, errlong:{torch.median(errlong)}')
+    logger.info(f'mean errt:{torch.mean(errt).cpu()}, var errt:{torch.var(errt).cpu()}, median errt:{torch.median(errt).cpu()}')
 
     wandb_features = dict()
     wandb_features.update({'test/lat 0.25m': (torch.sum(errlat <= 0.25) / errlat.size(0)).cpu()})
@@ -334,6 +359,13 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
     wandb_features.update({'test/mean errlon': torch.mean(errlong).cpu()})
     wandb_features.update({'test/var errlon': torch.var(errlong).cpu()})
     wandb_features.update({'test/median errlon': torch.median(errlong).cpu()})
+
+    wandb_features.update({'test/dis 0.25m': (torch.sum(errt <= 0.25) / errt.size(0)).cpu()})
+    wandb_features.update({'test/dis 0.5m': (torch.sum(errt <= 0.5) / errt.size(0)).cpu()})
+    wandb_features.update({'test/dis 1m': (torch.sum(errt <= 1) / errt.size(0)).cpu()})
+    wandb_features.update({'test/mean errt': torch.mean(errt).cpu()})
+    wandb_features.update({'test/var errt': torch.var(errt).cpu()})
+    wandb_features.update({'test/median errt': torch.median(errt).cpu()})
 
     wandb_features.update({'test/rot 1': (torch.sum(errR <= 1) / errR.size(0)).cpu()})
     wandb_features.update({'test/rot 2': (torch.sum(errR <= 2) / errR.size(0)).cpu()})
@@ -354,6 +386,141 @@ def test_basic(dataset, model, wandb_logger=None, conf=None, args=None):
     del wandb_features
 
     return
+
+def eval_basic(dataset, model, wandb_logger=None, conf=None, args=None):
+    test_loader = dataset.get_data_loader('val', shuffle=False)
+
+    model.eval()
+    results = {}
+    errR = torch.tensor([])
+    errlong = torch.tensor([])
+    errlat = torch.tensor([])
+    errt = torch.tensor([])
+
+    errR_list = torch.tensor([])
+    errt_list = torch.tensor([])
+    errlong_list = torch.tensor([])
+    errlat_list = torch.tensor([])
+
+    errR_init = torch.tensor([])
+    errt_init = torch.tensor([])
+    errlong_init = torch.tensor([])
+    errlat_init = torch.tensor([])
+
+
+    for idx, data in enumerate(tqdm(test_loader)):
+        if idx == 5 and model.conf.debug:
+            break
+        data_ = batch_to_device(data, device='cuda')
+        # logger.set(data_)
+        pred_ = model(data_)
+        metrics = model.metrics(pred_, data_, conf.data.name)
+        metrics_list = model.metrics_analysis(pred_, data_, conf.data.name)
+
+        errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
+        errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
+        errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
+        errt = torch.cat([errt, metrics['t_error'].cpu().data], dim=0)
+
+        errR_list = torch.cat([errR_list, metrics_list['R_error'].unsqueeze(dim=0).cpu().data], dim=0)
+        errt_list = torch.cat([errt_list, metrics_list['t_error'].unsqueeze(dim=0).cpu().data], dim=0)
+        errlong_list = torch.cat([errlong_list, metrics_list['long_error'].unsqueeze(dim=0).cpu().data], dim=0)
+        errlat_list = torch.cat([errlat_list, metrics_list['lat_error'].unsqueeze(dim=0).cpu().data], dim=0)
+
+        errR_init = torch.cat([errR_init, metrics_list['R_error/init'].unsqueeze(dim=0).cpu().data], dim=0)
+        errt_init = torch.cat([errt_init, metrics_list['t_error/init'].unsqueeze(dim=0).cpu().data], dim=0)
+        errlong_init = torch.cat([errlong_init, metrics_list['long_error/init'].unsqueeze(dim=0).cpu().data], dim=0)
+        errlat_init = torch.cat([errlat_init, metrics_list['lat_error/init'].unsqueeze(dim=0).cpu().data], dim=0)
+
+        del pred_, data_
+
+    #     for k, v in metrics.items():
+    #         if k not in results:
+    #             results[k] = AverageMetric()
+    #             if k in conf.median_metrics:
+    #                 results[k + '_median'] = MedianMetric()
+    #         results[k].update(v)
+    #         if k in conf.median_metrics:
+    #             results[k + '_median'].update(v)
+    # results = {k: results[k].compute() for k in results}
+
+    result_path = os.path.join('/ws/external/outputs/training', args.experiment, 'results.npz')
+    np.savez(result_path,
+             errR=errR_list.cpu().detach().numpy(),
+             errt=errt_list.cpu().detach().numpy(),
+             errlat=errlat_list.cpu().detach().numpy(),
+             errlong=errlong_list.cpu().detach().numpy(),
+             errR_init=errR_init.cpu().detach().numpy(),
+             errt_init=errt_init.cpu().detach().numpy(),
+             errlat_init=errlat_init.cpu().detach().numpy(),
+             errlong_init=errlong_init.cpu().detach().numpy())
+
+    logger.info(f'acc of lat<=0.25:{torch.sum(errlat <= 0.25) / errlat.size(0)}')
+    logger.info(f'acc of lat<=0.5:{torch.sum(errlat <= 0.5) / errlat.size(0)}')
+    logger.info(f'acc of lat<=1:{torch.sum(errlat <= 1) / errlat.size(0)}')
+    logger.info(f'acc of lat<=2:{torch.sum(errlat <= 2) / errlat.size(0)}')
+
+    logger.info(f'acc of long<=0.25:{torch.sum(errlong <= 0.25) / errlong.size(0)}')
+    logger.info(f'acc of long<=0.5:{torch.sum(errlong <= 0.5) / errlong.size(0)}')
+    logger.info(f'acc of long<=1:{torch.sum(errlong <= 1) / errlong.size(0)}')
+    logger.info(f'acc of long<=2:{torch.sum(errlong <= 2) / errlong.size(0)}')
+
+    logger.info(f'acc of dis<=0.25:{(torch.sum(errt <= 0.25) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=0.5:{(torch.sum(errt <= 0.5) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=1:{(torch.sum(errt <= 1) / errt.size(0)).cpu()}')
+    logger.info(f'acc of dis<=2:{(torch.sum(errt <= 2) / errt.size(0)).cpu()}')
+
+    logger.info(f'acc of R<=1:{torch.sum(errR <= 1) / errR.size(0)}')
+    logger.info(f'acc of R<=2:{torch.sum(errR <= 2) / errR.size(0)}')
+    logger.info(f'acc of R<=4:{torch.sum(errR <= 4) / errR.size(0)}')
+
+    logger.info(f'mean errR:{torch.mean(errR)}, errlat:{torch.mean(errlat)}, errlong:{torch.mean(errlong)}')
+    logger.info(f'var errR:{torch.var(errR)}, errlat:{torch.var(errlat)}, errlong:{torch.var(errlong)}')
+    logger.info(f'median errR:{torch.median(errR)}, errlat:{torch.median(errlat)}, errlong:{torch.median(errlong)}')
+    logger.info(f'mean errt:{torch.mean(errt).cpu()}, var errt:{torch.var(errt).cpu()}, median errt:{torch.median(errt).cpu()}')
+
+    wandb_features = dict()
+    wandb_features.update({'test/lat 0.25m': (torch.sum(errlat <= 0.25) / errlat.size(0)).cpu()})
+    wandb_features.update({'test/lat 0.5m': (torch.sum(errlat <= 0.5) / errlat.size(0)).cpu()})
+    wandb_features.update({'test/lat 1m': (torch.sum(errlat <= 1) / errlat.size(0)).cpu()})
+    wandb_features.update({'test/mean errlat': torch.mean(errlat).cpu()})
+    wandb_features.update({'test/var errlat': torch.var(errlat).cpu()})
+    wandb_features.update({'test/median errlat': torch.median(errlat).cpu()})
+
+    wandb_features.update({'test/lon 0.25m': (torch.sum(errlong <= 0.25) / errlong.size(0)).cpu()})
+    wandb_features.update({'test/lon 0.5m': (torch.sum(errlong <= 0.5) / errlong.size(0)).cpu()})
+    wandb_features.update({'test/lon 1m': (torch.sum(errlong <= 1) / errlong.size(0)).cpu()})
+    wandb_features.update({'test/mean errlon': torch.mean(errlong).cpu()})
+    wandb_features.update({'test/var errlon': torch.var(errlong).cpu()})
+    wandb_features.update({'test/median errlon': torch.median(errlong).cpu()})
+
+    wandb_features.update({'test/dis 0.25m': (torch.sum(errt <= 0.25) / errt.size(0)).cpu()})
+    wandb_features.update({'test/dis 0.5m': (torch.sum(errt <= 0.5) / errt.size(0)).cpu()})
+    wandb_features.update({'test/dis 1m': (torch.sum(errt <= 1) / errt.size(0)).cpu()})
+    wandb_features.update({'test/mean errt': torch.mean(errt).cpu()})
+    wandb_features.update({'test/var errt': torch.var(errt).cpu()})
+    wandb_features.update({'test/median errt': torch.median(errt).cpu()})
+
+    wandb_features.update({'test/rot 1': (torch.sum(errR <= 1) / errR.size(0)).cpu()})
+    wandb_features.update({'test/rot 2': (torch.sum(errR <= 2) / errR.size(0)).cpu()})
+    wandb_features.update({'test/rot 4': (torch.sum(errR <= 4) / errR.size(0)).cpu()})
+    wandb_features.update({'test/mean errR': torch.mean(errR).cpu()})
+    wandb_features.update({'test/var errR': torch.var(errR).cpu()})
+    wandb_features.update({'test/median errR': torch.median(errR).cpu()})
+
+    # for demo
+    if dataset.conf.name in ['kitti2_gazebo', 'kitti2_kaist0812']:
+        wandb_features.update({'test/lat 5m': (torch.sum(errlat <= 5) / errlat.size(0)).cpu()})
+        wandb_features.update({'test/lon 5m': (torch.sum(errlong <= 5) / errlong.size(0)).cpu()})
+        wandb_features.update({'test/lat 10m': (torch.sum(errlat <= 10) / errlat.size(0)).cpu()})
+        wandb_features.update({'test/lon 10m': (torch.sum(errlong <= 10) / errlong.size(0)).cpu()})
+
+    if args.wandb:
+        wandb_logger.wandb.log(wandb_features)
+    del wandb_features
+
+    return
+
 
 def test_kitti_voc(dataset, model, wandb_logger=None):
     # load dataloader
@@ -502,6 +669,8 @@ def test(rank, conf, output_dir, args, wandb_logger=None):
         test_kitti_voc(dataset, model, wandb_logger)
     # elif args.analysis:
     #     test_analysis(dataset, model, wandb_logger, conf, args)
+    elif args.eval:
+        eval_basic(dataset, model, wandb_logger, conf, args)
     else:
         test_basic(dataset, model, wandb_logger, conf, args)
 
@@ -991,6 +1160,7 @@ if __name__ == '__main__':
     parser.add_argument('--test_every_epoch', action='store_true', default=False, help='test every epoch')
     parser.add_argument('--distributed', action='store_true',default=False)
     parser.add_argument('--test', action='store_true', default=False)
+    parser.add_argument('--eval', action='store_true', default=False)
     parser.add_argument('--analysis', action='store_true', default=False)
     parser.add_argument('--dotlist', nargs='*', default=["data.name=kitti","data.max_num_points3D=4096","data.force_num_points3D=True",
                                                          "data.num_workers=4","data.train_batch_size=1","data.test_batch_size=1",
