@@ -524,6 +524,7 @@ def eval_basic(dataset, model, wandb_logger=None, conf=None, args=None):
 def test_grid(dataset, model, wandb_logger=None, conf=None, args=None):
     data_conf = copy.deepcopy(conf.data)
     # load dataset
+
     predefined_noise = [[0.25, 0.25, 0.25], [0.5, 0.25, 0.25], [0.75, 0.25, 0.25],
                         [0.25, 0.5, 0.25], [0.5, 0.5, 0.25], [0.75, 0.5, 0.25],
                         [0.25, 0.75, 0.25], [0.5, 0.75, 0.25], [0.75, 0.75, 0.25],
@@ -567,7 +568,7 @@ def test_grid(dataset, model, wandb_logger=None, conf=None, args=None):
         sat_files = []
 
         for idx, data in enumerate(tqdm(test_loader)):
-            if idx % 5 != 0:
+            if idx % 5 != 0: # Filter repetitive data
                 continue
             if idx == 25 and model.conf.debug:
                 break
@@ -580,7 +581,7 @@ def test_grid(dataset, model, wandb_logger=None, conf=None, args=None):
             errR = torch.cat([errR, metrics['R_error'].cpu().data], dim=0)
             errlong = torch.cat([errlong, metrics['long_error'].cpu().data], dim=0)
             errlat = torch.cat([errlat, metrics['lat_error'].cpu().data], dim=0)
-            errt = torch.cat([errt, metrics['t_error'].cpu().data], dim=0)
+            errt = torch.cat([errt, metrics['t_error'].cpu().data], dim=0) # trans. distance
 
             errR_list = torch.cat([errR_list, metrics_list['R_error'].unsqueeze(dim=0).cpu().data], dim=0)
             errt_list = torch.cat([errt_list, metrics_list['t_error'].unsqueeze(dim=0).cpu().data], dim=0)

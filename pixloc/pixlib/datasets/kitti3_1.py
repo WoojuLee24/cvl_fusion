@@ -45,7 +45,7 @@ class Kitti(BaseDataset):
     default_conf = {
         'two_view': True,
         'max_num_points3D': 5000,
-        'max_num_out_points3D': 15000,
+        'max_num_out_points3D': 10000,
         'center_num_points3D': 1024,
         'force_num_points3D': True,
         'rot_range': 15,
