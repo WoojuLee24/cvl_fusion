@@ -466,7 +466,7 @@ class _Dataset(Dataset):
         path = 'ford3_2'
         folder = f'/ws/external/debug_images/{path}'
         # debug
-        if 1:
+        if 0:
             #show sat imge
             if not os.path.exists(folder):
                 os.makedirs(folder)
@@ -535,7 +535,7 @@ class _Dataset(Dataset):
         #     imsave(data['ref']['image'][0], f'/ws/external/{path}', '0sat')
         #     imsave(r2q_img[0], f'/ws/external/{path}', '1r2q')
 
-        if 1:
+        if 0:
             # world2image
             color_image = transforms.functional.to_pil_image(data['ref']['image'], mode='RGB')
             color_image = np.array(color_image)
